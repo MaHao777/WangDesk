@@ -1,0 +1,49 @@
+# Build outputs
+bin/
+obj/
+out/
+artifacts/
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vcxproj.user
+*.VC.db
+*.VC.opendb
+
+# Rider / IntelliJ
+.idea/
+*.sln.iml
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# MSBuild logs
+msbuild.log
+msbuild.err
+msbuild.wrn
+
+# OS files
+Thumbs.db
+Desktop.ini
+
+# Logs and temp
+*.log
+*.tmp
+*.bak
+*.swp
+
+# User secrets
+secrets.json
+secrets.*.json
+
+# Publish output
+publish/
