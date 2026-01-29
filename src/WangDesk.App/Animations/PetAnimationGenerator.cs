@@ -146,74 +146,93 @@ public class PetAnimationGenerator
         double bounce = Math.Abs(Math.Sin(runFrame * Math.PI / 4)) * 5;
         double tilt = Math.Sin(runFrame * Math.PI / 4) * 5; // 身体前倾后仰 (角度)
 
-        // 腿部动画计算
-        // 0: 后伸, 1: 收回, 2: 前伸, 3: 着地
-        // 对角线腿同步
+        // 定义旋转变换 (绕中心点旋转)
+        var bodyTransform = new RotateTransform(tilt, centerX, centerY);
+
+        // --- 核心修复：使用变换矩阵计算精确的连接点坐标 ---
+        
+        // 1. 定义身体上的关键连接点 (相对于 (0,0) 的原始坐标，未旋转，但包含起伏 bounce)
+        //    身体中心在 (centerX, centerY - bounce + 10) 左右
+        //    髋关节 (后腿根部): 身体左侧
+        global::System.Windows.Point hipRaw = new global::System.Windows.Point(centerX - 20, centerY + 15 - bounce);
+        //    肩关节 (前腿根部): 身体右侧
+        global::System.Windows.Point shoulderRaw = new global::System.Windows.Point(centerX + 15, centerY + 15 - bounce);
+        //    颈部 (头部连接点): 身体右上方
+        global::System.Windows.Point neckRaw = new global::System.Windows.Point(centerX + 20, centerY - 5 - bounce);
+        //    尾部 (尾巴连接点): 身体左侧
+        global::System.Windows.Point tailRaw = new global::System.Windows.Point(centerX - 30, centerY + 5 - bounce);
+
+        // 2. 应用旋转变换，获取这一帧的精确屏幕坐标
+        global::System.Windows.Point hipPos = bodyTransform.Transform(hipRaw);
+        global::System.Windows.Point shoulderPos = bodyTransform.Transform(shoulderRaw);
+        global::System.Windows.Point headPos = bodyTransform.Transform(neckRaw);
+        global::System.Windows.Point tailPos = bodyTransform.Transform(tailRaw);
+
+
+        // --- 腿部摆动动画计算 ---
+        // 使用角度旋转，让腿与关节绑定而不脱离
         double phase = runFrame * Math.PI / 4;
-        
-        double legLfx = Math.Sin(phase) * 15; // 左前 X摆动
-        double legLfy = Math.Cos(phase) * 5;  // 左前 Y提腿
-        
-        double legRfx = Math.Sin(phase + Math.PI) * 15; // 右前
-        double legRfy = Math.Cos(phase + Math.PI) * 5;
+        double frontLegAngle = Math.Sin(phase) * 35;   // 前腿摆幅
+        double backLegAngle = Math.Sin(phase + Math.PI) * 35; // 后腿摆幅
 
-        double legLbx = Math.Sin(phase + Math.PI) * 15; // 左后
-        double legLby = Math.Cos(phase + Math.PI) * 5;
 
-        double legRbx = Math.Sin(phase) * 15; // 右后
-        double legRby = Math.Cos(phase) * 5;
-
-        // --- 核心修复：计算因身体旋转导致的腿部根部垂直偏移 ---
-        // 角度转弧度
-        double tiltRad = tilt * Math.PI / 180.0;
-        
-        // 前后腿相对于旋转中心(centerX)的水平距离
-        // 后腿大概在 centerX - 20 的位置
-        // 前腿大概在 centerX + 15 的位置
-        double backLegDist = -20; 
-        double frontLegDist = 15;
-
-        // 计算旋转产生的 Y 偏移 (Body右侧下降为正)
-        // OffsetY = Dist * Sin(Angle)
-        double backLegTiltOffset = backLegDist * Math.Sin(tiltRad);
-        double frontLegTiltOffset = frontLegDist * Math.Sin(tiltRad);
-
+        // --- 开始绘制 ---
         // 绘制顺序：后腿 -> 尾巴 -> 身体 -> 头 -> 前腿 -> 耳朵
 
-        // 后腿 (应用 backLegTiltOffset)
-        // 基础位置 centerY + 20, 减去 bounce (随身体起伏), 加上 tiltOffset (随身体旋转)
-        DrawFluffyBall(group, centerX - 25 + legLbx, centerY + 20 + legLby - bounce + backLegTiltOffset, 12, 18, _furBrushDark);
-        DrawFluffyBall(group, centerX - 15 + legRbx, centerY + 20 + legRby - bounce + backLegTiltOffset, 12, 18, _furBrushDark);
+        // 后腿 (以变换后的 hipPos 为根部)
+        DrawLeg(group, hipPos, backLegAngle, _furBrushDark);
+        DrawLeg(group, new global::System.Windows.Point(hipPos.X + 8, hipPos.Y), backLegAngle, _furBrushDark);
 
-        // 尾巴 (剧烈摇晃)
-        // 尾巴在身体左侧，同样应用后部的旋转偏移
+        // 尾巴 (以变换后的 tailPos 为根部，附加剧烈摇晃)
         double tailWag = Math.Sin(runFrame * 1.5) * 5;
-        DrawFluffyBall(group, centerX - 35, centerY + 5 - bounce + backLegTiltOffset + tailWag, 12, 12, _furBrushDark);
+        // 注意：尾巴也是附着在身体上的，所以基准点是 tailPos
+        DrawFluffyBall(group, tailPos.X - 5, tailPos.Y - 5 + tailWag, 12, 12, _furBrushDark);
 
         // 身体 (横向椭圆)
-        // 旋转变换模拟奔跑姿态
+        // 身体本身直接应用旋转变换
         var bodyGeom = new EllipseGeometry(new Rect(centerX - 25, centerY - 5 - bounce, 50, 35));
-        var bodyTransform = new RotateTransform(tilt, centerX, centerY);
         bodyGeom.Transform = bodyTransform;
         group.Children.Add(new GeometryDrawing(_furBrushLight, null, bodyGeom));
 
-        // 头部 (随身体起伏)
-        // 头部在身体右侧，应用前部的旋转偏移
-        double headX = centerX + 20;
-        double headY = centerY - 15 - bounce + frontLegTiltOffset;
-        DrawFluffyBall(group, headX - 20, headY - 20, 40, 38, _furBrushLight);
+        // 头部 (以变换后的 headPos 为中心)
+        // 头部稍微偏离连接点一点点，形成自然位置
+        double headDrawX = headPos.X; 
+        double headDrawY = headPos.Y - 15; // 脖子往上
+        DrawFluffyBall(group, headDrawX - 20, headDrawY - 20, 40, 38, _furBrushLight);
 
-        // 前腿 (应用 frontLegTiltOffset)
-        DrawFluffyBall(group, centerX + 10 + legLfx, centerY + 20 + legLfy - bounce + frontLegTiltOffset, 12, 18, _furBrushLight);
-        DrawFluffyBall(group, centerX + 20 + legRfx, centerY + 20 + legRfy - bounce + frontLegTiltOffset, 12, 18, _furBrushLight);
+        // 前腿 (以变换后的 shoulderPos 为根部)
+        DrawLeg(group, shoulderPos, frontLegAngle, _furBrushLight);
+        DrawLeg(group, new global::System.Windows.Point(shoulderPos.X + 8, shoulderPos.Y), frontLegAngle, _furBrushLight);
 
         // 耳朵 (随风飘动)
         double earFlap = Math.Sin(runFrame * 0.8) * 3;
-        DrawFluffyBall(group, headX - 22, headY - 5 + earFlap, 12, 20, _furBrushDark); // 后耳
-        DrawFluffyBall(group, headX + 8, headY - 5 + earFlap, 12, 20, _furBrushDark);  // 前耳
+        DrawFluffyBall(group, headDrawX - 22, headDrawY - 5 + earFlap, 12, 20, _furBrushDark); // 后耳
+        DrawFluffyBall(group, headDrawX + 8, headDrawY - 5 + earFlap, 12, 20, _furBrushDark);  // 前耳
 
         // 面部
-        DrawFaceFeatures(group, headX, headY);
+        DrawFaceFeatures(group, headDrawX, headDrawY);
+    }
+
+    private void DrawLeg(DrawingGroup group, global::System.Windows.Point joint, double angle, global::System.Windows.Media.Brush brush)
+    {
+        double legWidth = 6;
+        double legLength = 18;
+
+        var legRect = new RectangleGeometry(new Rect(joint.X - legWidth / 2, joint.Y, legWidth, legLength), 2, 2);
+
+        var transform = new RotateTransform(angle, joint.X, joint.Y);
+        legRect.Transform = transform;
+
+        group.Children.Add(new GeometryDrawing(brush, null, legRect));
+
+        // 小脚掌，增加连接感
+        var paw = new EllipseGeometry(new Rect(joint.X - 4, joint.Y + legLength - 2, 8, 6));
+        paw.Transform = transform;
+        group.Children.Add(new GeometryDrawing(brush, null, paw));
+
+        // 关节小圆，避免视觉断裂
+        var jointCircle = new EllipseGeometry(new Rect(joint.X - 3, joint.Y - 2, 6, 6));
+        group.Children.Add(new GeometryDrawing(brush, null, jointCircle));
     }
 
     private void DrawFaceFeatures(DrawingGroup group, double faceCenterX, double faceCenterY)
