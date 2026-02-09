@@ -11,7 +11,6 @@ public partial class App : global::System.Windows.Application
     private TrayIconManager? _trayIconManager;
     private ISystemMonitorService? _systemMonitorService;
     private ISettingsService? _settingsService;
-    private ITranslationService? _translationService;
     private IReminderService? _reminderService;
     private IAutoStartService? _autoStartService;
 
@@ -26,7 +25,6 @@ public partial class App : global::System.Windows.Application
         _trayIconManager = new TrayIconManager(
             _systemMonitorService!,
             _settingsService!,
-            _translationService!,
             _reminderService!,
             _autoStartService!);
 
@@ -44,9 +42,6 @@ public partial class App : global::System.Windows.Application
         // 系统监控服务
         _systemMonitorService = new SystemMonitorService();
 
-        // 翻译服务
-        _translationService = new BaiduTranslationService();
-
         // 定时提醒服务（使用设置中的默认间隔）
         _reminderService = new ReminderService(_settingsService.CurrentSettings.ReminderIntervalMinutes);
 
@@ -60,7 +55,6 @@ public partial class App : global::System.Windows.Application
         _trayIconManager?.Dispose();
         (_systemMonitorService as IDisposable)?.Dispose();
         (_reminderService as IDisposable)?.Dispose();
-        (_translationService as IDisposable)?.Dispose();
 
         base.OnExit(e);
     }

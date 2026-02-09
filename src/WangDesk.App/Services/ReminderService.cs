@@ -1,4 +1,4 @@
-using System.Timers;
+﻿using System.Timers;
 
 namespace WangDesk.App.Services;
 
@@ -27,7 +27,7 @@ public class ReminderService : IReminderService, IDisposable
         {
             if (_timer == null)
             {
-                _timer = new System.Timers.Timer(60000); // 每分钟检查一次
+                _timer = new System.Timers.Timer(1000); // 每秒更新一次
                 _timer.Elapsed += OnTimerElapsed;
             }
 
@@ -41,6 +41,7 @@ public class ReminderService : IReminderService, IDisposable
         lock (_lockObject)
         {
             _timer?.Stop();
+            _startTime = DateTime.Now;
         }
     }
 
@@ -56,11 +57,10 @@ public class ReminderService : IReminderService, IDisposable
     {
         if (minutes < 1) minutes = 1;
         if (minutes > 180) minutes = 180;
-        
+
         lock (_lockObject)
         {
             _intervalMinutes = minutes;
-            // 如果正在运行，重置计时
             if (IsRunning)
             {
                 _startTime = DateTime.Now;
@@ -70,13 +70,21 @@ public class ReminderService : IReminderService, IDisposable
 
     public int GetRemainingMinutes()
     {
+        return (int)Math.Ceiling(GetRemainingTime().TotalMinutes);
+    }
+
+    public TimeSpan GetRemainingTime()
+    {
         lock (_lockObject)
         {
-            if (!IsRunning) return _intervalMinutes;
-            
+            if (!IsRunning)
+            {
+                return TimeSpan.FromMinutes(_intervalMinutes);
+            }
+
             var elapsed = DateTime.Now - _startTime;
-            var remaining = _intervalMinutes - (int)elapsed.TotalMinutes;
-            return remaining > 0 ? remaining : 0;
+            var remaining = TimeSpan.FromMinutes(_intervalMinutes) - elapsed;
+            return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
         }
     }
 
@@ -84,12 +92,13 @@ public class ReminderService : IReminderService, IDisposable
     {
         lock (_lockObject)
         {
+            if (!IsRunning) return;
+
             var elapsed = DateTime.Now - _startTime;
             if (elapsed.TotalMinutes >= _intervalMinutes)
             {
+                _timer?.Stop();
                 ReminderTriggered?.Invoke(this, EventArgs.Empty);
-                // 重置计时器
-                _startTime = DateTime.Now;
             }
         }
     }

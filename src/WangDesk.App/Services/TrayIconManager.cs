@@ -7,7 +7,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using WangDesk.App.Animations;
 using WangDesk.App.Models;
-using WangDesk.App.Services;
 using WangDesk.App.Views;
 using Brushes = System.Windows.Media.Brushes;
 using Color = System.Windows.Media.Color;
@@ -25,22 +24,19 @@ public class TrayIconManager : IDisposable
     private System.Windows.Forms.Timer? _tooltipUpdateTimer;
     private readonly ISystemMonitorService _systemMonitor;
     private readonly ISettingsService _settingsService;
-    private readonly ITranslationService _translationService;
     private readonly IReminderService _reminderService;
     private readonly IAutoStartService _autoStartService;
     private SettingsWindow? _settingsWindow;
-    private TranslationWindow? _translationWindow;
+    private PomodoroPopupWindow? _pomodoroPopupWindow;
 
     public TrayIconManager(
         ISystemMonitorService systemMonitor,
         ISettingsService settingsService,
-        ITranslationService translationService,
         IReminderService reminderService,
         IAutoStartService autoStartService)
     {
         _systemMonitor = systemMonitor;
         _settingsService = settingsService;
-        _translationService = translationService;
         _reminderService = reminderService;
         _autoStartService = autoStartService;
         _animationGenerator = new PetAnimationGenerator();
@@ -77,16 +73,6 @@ public class TrayIconManager : IDisposable
         _notifyIcon.MouseClick += OnTrayIconClick;
         _notifyIcon.MouseMove += OnTrayIconMouseMove;
 
-        // 启动提醒服务
-        _reminderService.ReminderTriggered += OnReminderTriggered;
-        _reminderService.SetInterval(_settingsService.CurrentSettings.ReminderIntervalMinutes);
-        _reminderService.Start();
-
-        // 配置翻译服务
-        _translationService.Configure(
-            _settingsService.CurrentSettings.BaiduTranslateAppId,
-            _settingsService.CurrentSettings.BaiduTranslateSecretKey);
-
         // 监听设置变更
         _settingsService.SettingsChanged += OnSettingsChanged;
     }
@@ -110,14 +96,14 @@ public class TrayIconManager : IDisposable
     {
         var metrics = _systemMonitor.GetMetrics();
         var storage = _systemMonitor.GetStorageInfo();
-        var remainingMinutes = _reminderService.GetRemainingMinutes();
-        
+        var remaining = _reminderService.GetRemainingTime();
+
         var tooltip = $"旺旺桌宠\n" +
                       $"CPU: {metrics.CpuUsage}%\n" +
                       $"内存: {metrics.MemoryUsagePercent}% ({metrics.MemoryUsedGB:F1}/{metrics.MemoryTotalGB:F1} GB)\n" +
                       $"上传: {metrics.NetworkSent}\n" +
                       $"下载: {metrics.NetworkReceived}\n" +
-                      $"下次休息: {remainingMinutes} 分钟后";
+                      $"剩余: {(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}";
 
         _notifyIcon!.Text = tooltip.Length > 63 ? tooltip[..63] : tooltip;
     }
@@ -136,6 +122,10 @@ public class TrayIconManager : IDisposable
     private void OnTrayIconClick(object? sender, MouseEventArgs e)
     {
         if (e.Button == MouseButtons.Left)
+        {
+            ShowPomodoroPopup(e.Location);
+        }
+        else if (e.Button == MouseButtons.Right)
         {
             ShowContextMenu();
         }
@@ -161,91 +151,86 @@ public class TrayIconManager : IDisposable
         var metrics = _systemMonitor.GetMetrics();
         var storage = _systemMonitor.GetStorageInfo();
 
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem 
-        { 
-            Header = $"CPU: {metrics.CpuUsage}%", 
-            IsEnabled = false 
+        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = $"CPU: {metrics.CpuUsage}%",
+            IsEnabled = false
         });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem 
-        { 
-            Header = $"User: {metrics.CpuUserUsage}%", 
-            IsEnabled = false 
+        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = $"User: {metrics.CpuUserUsage}%",
+            IsEnabled = false
         });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem 
-        { 
-            Header = $"Kernel: {metrics.CpuKernelUsage}%", 
-            IsEnabled = false 
+        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = $"Kernel: {metrics.CpuKernelUsage}%",
+            IsEnabled = false
         });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem 
-        { 
-            Header = $"Available: {metrics.CpuAvailable}%", 
-            IsEnabled = false 
+        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = $"Available: {metrics.CpuAvailable}%",
+            IsEnabled = false
         });
         statusItem.Items.Add(new System.Windows.Controls.Separator());
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem 
-        { 
-            Header = $"Memory: {metrics.MemoryUsagePercent}%", 
-            IsEnabled = false 
+        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = $"Memory: {metrics.MemoryUsagePercent}%",
+            IsEnabled = false
         });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem 
-        { 
-            Header = $"Total: {metrics.MemoryTotalGB:F2} GB", 
-            IsEnabled = false 
+        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = $"Total: {metrics.MemoryTotalGB:F2} GB",
+            IsEnabled = false
         });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem 
-        { 
-            Header = $"Used: {metrics.MemoryUsedGB:F2} GB", 
-            IsEnabled = false 
+        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = $"Used: {metrics.MemoryUsedGB:F2} GB",
+            IsEnabled = false
         });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem 
-        { 
-            Header = $"Available: {metrics.MemoryAvailableGB:F2} GB", 
-            IsEnabled = false 
+        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = $"Available: {metrics.MemoryAvailableGB:F2} GB",
+            IsEnabled = false
         });
-        
+
         // 存储信息
         statusItem.Items.Add(new System.Windows.Controls.Separator());
         foreach (var drive in storage)
         {
             var driveItem = new System.Windows.Controls.MenuItem { Header = drive.DriveName };
-            driveItem.Items.Add(new System.Windows.Controls.MenuItem 
-            { 
-                Header = $"{drive.DriveLetter} Drive: {drive.UsagePercent}%", 
-                IsEnabled = false 
+            driveItem.Items.Add(new System.Windows.Controls.MenuItem
+            {
+                Header = $"{drive.DriveLetter} Drive: {drive.UsagePercent}%",
+                IsEnabled = false
             });
-            driveItem.Items.Add(new System.Windows.Controls.MenuItem 
-            { 
-                Header = $"Used: {drive.UsedGB:F2} GB", 
-                IsEnabled = false 
+            driveItem.Items.Add(new System.Windows.Controls.MenuItem
+            {
+                Header = $"Used: {drive.UsedGB:F2} GB",
+                IsEnabled = false
             });
-            driveItem.Items.Add(new System.Windows.Controls.MenuItem 
-            { 
-                Header = $"Available: {drive.AvailableGB:F2} GB", 
-                IsEnabled = false 
+            driveItem.Items.Add(new System.Windows.Controls.MenuItem
+            {
+                Header = $"Available: {drive.AvailableGB:F2} GB",
+                IsEnabled = false
             });
             statusItem.Items.Add(driveItem);
         }
-        
+
         // 网络信息
         statusItem.Items.Add(new System.Windows.Controls.Separator());
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem 
-        { 
-            Header = $"Sent: {metrics.NetworkSent}", 
-            IsEnabled = false 
+        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = $"Sent: {metrics.NetworkSent}",
+            IsEnabled = false
         });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem 
-        { 
-            Header = $"Received: {metrics.NetworkReceived}", 
-            IsEnabled = false 
+        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        {
+            Header = $"Received: {metrics.NetworkReceived}",
+            IsEnabled = false
         });
 
         contextMenu.Items.Add(statusItem);
         contextMenu.Items.Add(new System.Windows.Controls.Separator());
-
-        // 翻译菜单项
-        var translateItem = new System.Windows.Controls.MenuItem { Header = "翻译" };
-        translateItem.Click += (s, e) => ShowTranslationWindow();
-        contextMenu.Items.Add(translateItem);
 
         // 设置菜单项
         var settingsItem = new System.Windows.Controls.MenuItem { Header = "设置" };
@@ -264,18 +249,14 @@ public class TrayIconManager : IDisposable
     }
 
     /// <summary>
-    /// 显示翻译窗口
+    /// 显示番茄钟弹窗
     /// </summary>
-    private void ShowTranslationWindow()
+    private void ShowPomodoroPopup(System.Drawing.Point point)
     {
-        if (_translationWindow == null)
-        {
-            _translationWindow = new TranslationWindow(_translationService);
-            _translationWindow.Closed += (s, e) => _translationWindow = null;
-        }
-        
-        _translationWindow.Show();
-        _translationWindow.Activate();
+        _pomodoroPopupWindow?.Close();
+        _pomodoroPopupWindow = new PomodoroPopupWindow(_settingsService, _reminderService);
+        var screenPoint = System.Windows.Forms.Cursor.Position;
+        _pomodoroPopupWindow.ShowNearScreenPoint(screenPoint);
     }
 
     /// <summary>
@@ -287,11 +268,10 @@ public class TrayIconManager : IDisposable
         {
             _settingsWindow = new SettingsWindow(
                 _settingsService,
-                _autoStartService,
-                _reminderService);
+                _autoStartService);
             _settingsWindow.Closed += (s, e) => _settingsWindow = null;
         }
-        
+
         _settingsWindow.Show();
         _settingsWindow.Activate();
     }
@@ -314,12 +294,9 @@ public class TrayIconManager : IDisposable
     /// </summary>
     private void OnSettingsChanged(object? sender, AppSettings settings)
     {
-        // 更新翻译服务配置
-        _translationService.Configure(settings.BaiduTranslateAppId, settings.BaiduTranslateSecretKey);
-        
         // 更新提醒间隔
         _reminderService.SetInterval(settings.ReminderIntervalMinutes);
-        
+
         // 更新开机自启
         _autoStartService.SetAutoStart(settings.AutoStartEnabled);
     }
@@ -367,6 +344,6 @@ public class TrayIconManager : IDisposable
         _tooltipUpdateTimer?.Dispose();
         _notifyIcon?.Dispose();
         _settingsWindow?.Close();
-        _translationWindow?.Close();
+        _pomodoroPopupWindow?.Close();
     }
 }

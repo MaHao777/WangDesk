@@ -8,28 +8,8 @@ namespace WangDesk.App.Models;
 /// </summary>
 public class AppSettings : INotifyPropertyChanged
 {
-    private string _baiduTranslateAppId = string.Empty;
-    private string _baiduTranslateSecretKey = string.Empty;
     private int _reminderIntervalMinutes = 45;
     private bool _autoStartEnabled;
-
-    /// <summary>
-    /// 百度翻译App ID
-    /// </summary>
-    public string BaiduTranslateAppId
-    {
-        get => _baiduTranslateAppId;
-        set => SetProperty(ref _baiduTranslateAppId, value);
-    }
-
-    /// <summary>
-    /// 百度翻译密钥
-    /// </summary>
-    public string BaiduTranslateSecretKey
-    {
-        get => _baiduTranslateSecretKey;
-        set => SetProperty(ref _baiduTranslateSecretKey, value);
-    }
 
     /// <summary>
     /// 提醒间隔（分钟）
