@@ -22,12 +22,17 @@ public class TrayIconManager : IDisposable
     private readonly PetAnimationGenerator _animationGenerator;
     private System.Windows.Forms.Timer? _animationTimer;
     private System.Windows.Forms.Timer? _tooltipUpdateTimer;
+    private System.Windows.Forms.Timer? _alertFlashTimer;
     private readonly ISystemMonitorService _systemMonitor;
     private readonly ISettingsService _settingsService;
     private readonly IReminderService _reminderService;
     private readonly IAutoStartService _autoStartService;
     private SettingsWindow? _settingsWindow;
     private PomodoroPopupWindow? _pomodoroPopupWindow;
+    private bool _isFlashing;
+    private bool _showRedIcon;
+    private Icon? _normalIcon;
+    private Icon? _redIcon;
 
     public TrayIconManager(
         ISystemMonitorService systemMonitor,
@@ -53,39 +58,129 @@ public class TrayIconManager : IDisposable
             Visible = true
         };
 
-        // 创建动画定时器
         _animationTimer = new System.Windows.Forms.Timer();
-        _animationTimer.Interval = 100; // 100ms 更新一帧
+        _animationTimer.Interval = 100;
         _animationTimer.Tick += (s, e) => UpdateAnimation();
         _animationTimer.Start();
 
-        // 创建提示更新定时器
         _tooltipUpdateTimer = new System.Windows.Forms.Timer();
-        _tooltipUpdateTimer.Interval = 1000; // 1秒更新一次提示
+        _tooltipUpdateTimer.Interval = 1000;
         _tooltipUpdateTimer.Tick += (s, e) => UpdateTooltip();
         _tooltipUpdateTimer.Start();
 
-        // 绑定系统监控事件
+        _alertFlashTimer = new System.Windows.Forms.Timer();
+        _alertFlashTimer.Interval = 500;
+        _alertFlashTimer.Tick += (s, e) => FlashAlertIcon();
+
         _systemMonitor.MetricsUpdated += OnMetricsUpdated;
         _systemMonitor.StartMonitoring();
 
-        // 设置鼠标事件
         _notifyIcon.MouseClick += OnTrayIconClick;
         _notifyIcon.MouseMove += OnTrayIconMouseMove;
+        _notifyIcon.BalloonTipClicked += OnBalloonTipClicked;
 
-        // 监听设置变更
         _settingsService.SettingsChanged += OnSettingsChanged;
+        _reminderService.ReminderTriggered += OnReminderTriggered;
     }
 
     /// <summary>
     /// 更新动画
     /// </summary>
+    private void OnReminderTriggered(object? sender, EventArgs e)
+    {
+        try
+        {
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            {
+                StartFlashing();
+                
+                _notifyIcon?.ShowBalloonTip(
+                    5000,
+                    "🍅 番茄钟提醒",
+                    "时间到啦！休息一下吧~",
+                    ToolTipIcon.Info);
+            });
+        }
+        catch
+        {
+        }
+    }
+
+    private void StartFlashing()
+    {
+        if (_isFlashing) return;
+        
+        _isFlashing = true;
+        _showRedIcon = true;
+        
+        if (_normalIcon == null)
+        {
+            _normalIcon = _notifyIcon?.Icon;
+            _redIcon = CreateRedIcon();
+        }
+        
+        _alertFlashTimer?.Start();
+    }
+
+    public void StopFlashing()
+    {
+        _isFlashing = false;
+        _alertFlashTimer?.Stop();
+        if (_normalIcon != null && _notifyIcon != null)
+        {
+            _notifyIcon.Icon = _normalIcon;
+        }
+    }
+
+    private void FlashAlertIcon()
+    {
+        if (!_isFlashing || _notifyIcon == null) return;
+        
+        _showRedIcon = !_showRedIcon;
+        _notifyIcon.Icon = _showRedIcon ? _redIcon : _normalIcon;
+    }
+
+    private Icon CreateRedIcon()
+    {
+        var size = 256;
+        var bitmap = new System.Drawing.Bitmap(size, size);
+        using var g = System.Drawing.Graphics.FromImage(bitmap);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.Clear(System.Drawing.Color.Transparent);
+        
+        using var brush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(239, 89, 80));
+        g.FillEllipse(brush, 20, 20, size - 40, size - 40);
+        
+        using var whiteBrush = new System.Drawing.SolidBrush(System.Drawing.Color.White);
+        var fontSize = size / 3;
+        using var font = new System.Drawing.Font("Segoe UI", fontSize, System.Drawing.FontStyle.Bold);
+        var text = "!";
+        var textSize = g.MeasureString(text, font);
+        var x = (size - textSize.Width) / 2;
+        var y = (size - textSize.Height) / 2;
+        g.DrawString(text, font, whiteBrush, x, y);
+        
+        var hIcon = bitmap.GetHicon();
+        return Icon.FromHandle(hIcon);
+    }
+
+    private void OnBalloonTipClicked(object? sender, EventArgs e)
+    {
+        StopFlashing();
+    }
+
     private void UpdateAnimation()
     {
+        if (_isFlashing) return;
+        
         var frame = _animationGenerator.GenerateNextFrame();
         if (frame != null)
         {
             _notifyIcon!.Icon = ConvertDrawingImageToIcon(frame);
+            if (_normalIcon == null)
+            {
+                _normalIcon = _notifyIcon.Icon;
+            }
         }
     }
 
@@ -121,6 +216,8 @@ public class TrayIconManager : IDisposable
     /// </summary>
     private void OnTrayIconClick(object? sender, MouseEventArgs e)
     {
+        StopFlashing();
+        
         if (e.Button == MouseButtons.Left)
         {
             ShowPomodoroPopup(e.Location);
@@ -276,34 +373,12 @@ public class TrayIconManager : IDisposable
         _settingsWindow.Activate();
     }
 
-    /// <summary>
-    /// 提醒触发事件
-    /// </summary>
-    private void OnReminderTriggered(object? sender, EventArgs e)
-    {
-        // 显示气泡提示
-        _notifyIcon?.ShowBalloonTip(
-            3000,
-            "旺旺桌宠提醒",
-            "该休息啦！起来活动一下吧~",
-            ToolTipIcon.Info);
-    }
-
-    /// <summary>
-    /// 设置变更事件
-    /// </summary>
     private void OnSettingsChanged(object? sender, AppSettings settings)
     {
-        // 更新提醒间隔
         _reminderService.SetInterval(settings.ReminderIntervalMinutes);
-
-        // 更新开机自启
         _autoStartService.SetAutoStart(settings.AutoStartEnabled);
     }
 
-    /// <summary>
-    /// 关闭应用程序
-    /// </summary>
     private void ShutdownApplication()
     {
         System.Windows.Application.Current.Shutdown();
@@ -342,6 +417,10 @@ public class TrayIconManager : IDisposable
         _animationTimer?.Dispose();
         _tooltipUpdateTimer?.Stop();
         _tooltipUpdateTimer?.Dispose();
+        _alertFlashTimer?.Stop();
+        _alertFlashTimer?.Dispose();
+        _redIcon?.Dispose();
+        _normalIcon?.Dispose();
         _notifyIcon?.Dispose();
         _settingsWindow?.Close();
         _pomodoroPopupWindow?.Close();
