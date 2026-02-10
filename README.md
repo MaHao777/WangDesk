@@ -5,5 +5,8 @@
 - 定时功能：可以开启定时器，到时间会提示休息，用户可以自定义定时时间。
 - 设备状态查询功能：当悬停在这个功能项时，会披露式的显示设备当前的cpu使用率，内存使用率，硬盘使用率，网速等信息。
 - 动画显示功能：桌面栏的图标是一只泰迪小狗不停的奔跑，其奔跑速度随cpu使用率而改变。
-# 设备运行
+# 软件运行和构建指令
+## 运行
 dotnet run --project src/WangDesk.App/WangDesk.App.csproj
+## 构建
+dotnet build --project src/WangDesk.App/WangDesk.App.csproj

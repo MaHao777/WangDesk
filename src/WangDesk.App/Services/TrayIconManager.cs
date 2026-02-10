@@ -29,6 +29,7 @@ public class TrayIconManager : IDisposable
     private readonly IAutoStartService _autoStartService;
     private SettingsWindow? _settingsWindow;
     private PomodoroPopupWindow? _pomodoroPopupWindow;
+    private ReminderPopupWindow? _reminderPopupWindow;
     private bool _isFlashing;
     private bool _showRedIcon;
     private Icon? _normalIcon;
@@ -92,18 +93,20 @@ public class TrayIconManager : IDisposable
         {
             System.Windows.Application.Current.Dispatcher.Invoke(() =>
             {
-                StartFlashing();
-                
-                _notifyIcon?.ShowBalloonTip(
-                    5000,
-                    "🍅 番茄钟提醒",
-                    "时间到啦！休息一下吧~",
-                    ToolTipIcon.Info);
+                ShowReminderPopup();
             });
         }
         catch
         {
         }
+    }
+
+    private void ShowReminderPopup()
+    {
+        _reminderPopupWindow?.Close();
+        _reminderPopupWindow = new ReminderPopupWindow();
+        var screenPoint = System.Windows.Forms.Cursor.Position;
+        _reminderPopupWindow.ShowNearScreenPoint(screenPoint);
     }
 
     private void StartFlashing()
@@ -346,11 +349,18 @@ public class TrayIconManager : IDisposable
     }
 
     /// <summary>
-    /// 显示番茄钟弹窗
+    /// 显示番茄钟弹窗（切换显示/隐藏）
     /// </summary>
     private void ShowPomodoroPopup(System.Drawing.Point point)
     {
-        _pomodoroPopupWindow?.Close();
+        // 如果番茄钟弹窗已经显示，则关闭它
+        if (_pomodoroPopupWindow != null && _pomodoroPopupWindow.IsOpen)
+        {
+            _pomodoroPopupWindow.Close();
+            return;
+        }
+
+        _pomodoroPopupWindow?.Dispose();
         _pomodoroPopupWindow = new PomodoroPopupWindow(_settingsService, _reminderService);
         var screenPoint = System.Windows.Forms.Cursor.Position;
         _pomodoroPopupWindow.ShowNearScreenPoint(screenPoint);
@@ -424,5 +434,6 @@ public class TrayIconManager : IDisposable
         _notifyIcon?.Dispose();
         _settingsWindow?.Close();
         _pomodoroPopupWindow?.Close();
+        _reminderPopupWindow?.Close();
     }
 }

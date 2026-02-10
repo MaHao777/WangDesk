@@ -27,12 +27,14 @@ public class PomodoroPopupWindow : IDisposable
     private bool _mouseHasEntered;
     private bool _isClosing;
 
+    public bool IsOpen => _popup.IsOpen && !_isClosing;
+
     private TextBlock _timeText = null!;
     private Path _progressPath = null!;
     private Slider _intervalSlider = null!;
     private TextBlock _intervalValueLabel = null!;
-    private Button _startButton = null!;
-    private Button _stopButton = null!;
+    private Border _toggleButtonBorder = null!;
+    private TextBlock _toggleButtonText = null!;
 
     private const double CanvasSize = 170;
     private const double RingRadius = 65;
@@ -300,17 +302,7 @@ public class PomodoroPopupWindow : IDisposable
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13
         };
-        _intervalSlider = new Slider
-        {
-            Width = 100,
-            Minimum = 1,
-            Maximum = 60,
-            TickFrequency = 1,
-            IsSnapToTickEnabled = true,
-            VerticalAlignment = VerticalAlignment.Center,
-            Foreground = TomatoColor,
-            Background = BgLightColor
-        };
+        _intervalSlider = CreateStyledSlider();
         _intervalValueLabel = new TextBlock
         {
             Foreground = System.Windows.Media.Brushes.White,
@@ -332,14 +324,56 @@ public class PomodoroPopupWindow : IDisposable
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Center
         };
-        _startButton = CreateStyledButton("▶ 启动", TomatoColor);
-        _startButton.Margin = new Thickness(0, 0, 16, 0);
-        _startButton.Click += OnStartClick;
-        
-        _stopButton = CreateStyledButton("⏹ 停止", new SolidColorBrush(System.Windows.Media.Color.FromRgb(120, 120, 125)));
-        _stopButton.Click += OnStopClick;
-        buttonPanel.Children.Add(_startButton);
-        buttonPanel.Children.Add(_stopButton);
+
+        // 圆角胶囊切换按钮
+        _toggleButtonText = new TextBlock
+        {
+            Text = "▶  启动",
+            Foreground = System.Windows.Media.Brushes.White,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        _toggleButtonBorder = new Border
+        {
+            Width = 140,
+            Height = 40,
+            CornerRadius = new CornerRadius(20),
+            Background = TomatoColor,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Child = _toggleButtonText,
+            Effect = new DropShadowEffect
+            {
+                Color = System.Windows.Media.Color.FromRgb(239, 89, 80),
+                BlurRadius = 12,
+                ShadowDepth = 0,
+                Opacity = 0.35
+            }
+        };
+
+        _toggleButtonBorder.MouseEnter += (s, e) =>
+        {
+            var isRunning = _reminderService.IsRunning;
+            _toggleButtonBorder.Background = isRunning
+                ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(160, 80, 80))
+                : new SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 110, 100));
+        };
+        _toggleButtonBorder.MouseLeave += (s, e) => UpdateToggleButtonStyle();
+        _toggleButtonBorder.MouseLeftButtonDown += (s, e) =>
+        {
+            var isRunning = _reminderService.IsRunning;
+            _toggleButtonBorder.Background = isRunning
+                ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(120, 55, 55))
+                : TomatoDarkColor;
+        };
+        _toggleButtonBorder.MouseLeftButtonUp += (s, e) =>
+        {
+            OnToggleClick();
+        };
+
+        buttonPanel.Children.Add(_toggleButtonBorder);
         Grid.SetRow(buttonPanel, 2);
         grid.Children.Add(buttonPanel);
 
@@ -347,48 +381,63 @@ public class PomodoroPopupWindow : IDisposable
         _popup.Child = _rootBorder;
     }
 
-    private static Button CreateStyledButton(string content, SolidColorBrush accentColor)
+    private Slider CreateStyledSlider()
     {
-        var defaultBg = new SolidColorBrush(System.Windows.Media.Color.FromRgb(50, 50, 55));
-        var hoverBg = accentColor;
-        var darkerColor = System.Windows.Media.Color.FromRgb(
-            (byte)(accentColor.Color.R * 0.8),
-            (byte)(accentColor.Color.G * 0.8),
-            (byte)(accentColor.Color.B * 0.8));
-        var pressedBg = new SolidColorBrush(darkerColor);
-
-        var button = new Button
+        var slider = new Slider
         {
-            Content = content,
-            Width = 100,
-            Height = 36,
-            FontSize = 13,
-            FontWeight = FontWeights.Medium,
-            Cursor = System.Windows.Input.Cursors.Hand,
-            Background = defaultBg,
-            Foreground = System.Windows.Media.Brushes.White,
-            BorderBrush = accentColor,
-            BorderThickness = new Thickness(1)
+            Width = 130,
+            Minimum = 1,
+            Maximum = 60,
+            TickFrequency = 1,
+            IsSnapToTickEnabled = true,
+            VerticalAlignment = VerticalAlignment.Center,
+            Height = 24
         };
 
-        button.MouseEnter += (s, e) => 
-        {
-            if (button.IsEnabled) button.Background = hoverBg;
-        };
-        button.MouseLeave += (s, e) => 
-        {
-            button.Background = defaultBg;
-        };
-        button.PreviewMouseDown += (s, e) => 
-        {
-            button.Background = pressedBg;
-        };
-        button.PreviewMouseUp += (s, e) => 
-        {
-            button.Background = button.IsMouseOver ? hoverBg : defaultBg;
-        };
+        var templateXaml = @"
+<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+                 xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
+                 TargetType='Slider'>
+    <Grid>
+        <Border Background='#41414A' CornerRadius='3' Height='6' VerticalAlignment='Center'/>
+        <Track x:Name='PART_Track' VerticalAlignment='Center'>
+            <Track.DecreaseRepeatButton>
+                <RepeatButton Command='Slider.DecreaseLarge' IsTabStop='False'>
+                    <RepeatButton.Template>
+                        <ControlTemplate TargetType='RepeatButton'>
+                            <Border Background='#EF5950' CornerRadius='3' Height='6'/>
+                        </ControlTemplate>
+                    </RepeatButton.Template>
+                </RepeatButton>
+            </Track.DecreaseRepeatButton>
+            <Track.IncreaseRepeatButton>
+                <RepeatButton Command='Slider.IncreaseLarge' IsTabStop='False'>
+                    <RepeatButton.Template>
+                        <ControlTemplate TargetType='RepeatButton'>
+                            <Border Background='Transparent' Height='6'/>
+                        </ControlTemplate>
+                    </RepeatButton.Template>
+                </RepeatButton>
+            </Track.IncreaseRepeatButton>
+            <Track.Thumb>
+                <Thumb>
+                    <Thumb.Template>
+                        <ControlTemplate TargetType='Thumb'>
+                            <Ellipse Width='16' Height='16' Fill='#EF5950' Stroke='White' StrokeThickness='2'>
+                                <Ellipse.Effect>
+                                    <DropShadowEffect Color='#EF5950' BlurRadius='8' ShadowDepth='0' Opacity='0.5'/>
+                                </Ellipse.Effect>
+                            </Ellipse>
+                        </ControlTemplate>
+                    </Thumb.Template>
+                </Thumb>
+            </Track.Thumb>
+        </Track>
+    </Grid>
+</ControlTemplate>";
 
-        return button;
+        slider.Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(templateXaml);
+        return slider;
     }
 
     private void AddTicks(Canvas canvas)
@@ -453,15 +502,16 @@ public class PomodoroPopupWindow : IDisposable
         UpdateDisplay();
     }
 
-    private void OnStartClick(object sender, RoutedEventArgs e)
+    private void OnToggleClick()
     {
-        _reminderService.Start();
-        UpdateDisplay();
-    }
-
-    private void OnStopClick(object sender, RoutedEventArgs e)
-    {
-        _reminderService.Stop();
+        if (_reminderService.IsRunning)
+        {
+            _reminderService.Stop();
+        }
+        else
+        {
+            _reminderService.Start();
+        }
         UpdateDisplay();
     }
 
@@ -472,12 +522,25 @@ public class PomodoroPopupWindow : IDisposable
         UpdateProgress(remaining);
 
         var isRunning = _reminderService.IsRunning;
-        _startButton.IsEnabled = !isRunning;
-        _stopButton.IsEnabled = isRunning;
         _intervalSlider.IsEnabled = !isRunning;
-        
-        _startButton.Opacity = isRunning ? 0.4 : 1;
-        _stopButton.Opacity = isRunning ? 1 : 0.4;
+        UpdateToggleButtonStyle();
+    }
+
+    private void UpdateToggleButtonStyle()
+    {
+        var isRunning = _reminderService.IsRunning;
+        if (isRunning)
+        {
+            _toggleButtonText.Text = "■  停止";
+            _toggleButtonBorder.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(130, 65, 65));
+            ((DropShadowEffect)_toggleButtonBorder.Effect).Color = System.Windows.Media.Color.FromRgb(130, 65, 65);
+        }
+        else
+        {
+            _toggleButtonText.Text = "▶  启动";
+            _toggleButtonBorder.Background = TomatoColor;
+            ((DropShadowEffect)_toggleButtonBorder.Effect).Color = System.Windows.Media.Color.FromRgb(239, 89, 80);
+        }
     }
 
     private void UpdateProgress(TimeSpan remaining)
