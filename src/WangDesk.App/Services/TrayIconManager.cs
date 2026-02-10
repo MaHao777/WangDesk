@@ -211,9 +211,9 @@ public class TrayIconManager : IDisposable
                       $"内存: {metrics.MemoryUsagePercent}% ({metrics.MemoryUsedGB:F1}/{metrics.MemoryTotalGB:F1} GB)\n" +
                       $"上传: {metrics.NetworkSent}\n" +
                       $"下载: {metrics.NetworkReceived}\n" +
-                      $"剩余: {(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}";
+                      $"番茄时间剩余: {(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}min";
 
-        _notifyIcon!.Text = tooltip.Length > 63 ? tooltip[..63] : tooltip;
+        _notifyIcon!.Text = tooltip.Length > 127 ? tooltip[..127] : tooltip;
     }
 
     /// <summary>

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("WangDesk.App")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+756c99cd80db8de0fb516383021b9dd68cd1a727")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+215073e5faf1316bfcc5f3a61550829a6b4659e9")]
 [assembly: System.Reflection.AssemblyProductAttribute("WangDesk.App")]
 [assembly: System.Reflection.AssemblyTitleAttribute("WangDesk.App")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
