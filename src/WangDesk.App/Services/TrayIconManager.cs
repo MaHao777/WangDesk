@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -179,10 +180,19 @@ public class TrayIconManager : IDisposable
         var frame = _animationGenerator.GenerateNextFrame();
         if (frame != null)
         {
-            _notifyIcon!.Icon = ConvertDrawingImageToIcon(frame);
+            var newIcon = ConvertDrawingImageToIcon(frame);
+            var oldIcon = _notifyIcon!.Icon;
+            _notifyIcon.Icon = newIcon;
+            
             if (_normalIcon == null)
             {
-                _normalIcon = _notifyIcon.Icon;
+                _normalIcon = newIcon;
+            }
+            
+            // 释放旧图标的 GDI 资源（但不释放 _normalIcon）
+            if (oldIcon != null && oldIcon != _normalIcon)
+            {
+                oldIcon.Dispose();
             }
         }
     }
@@ -397,10 +407,13 @@ public class TrayIconManager : IDisposable
     /// <summary>
     /// 将DrawingImage转换为Icon
     /// </summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
+
     private Icon ConvertDrawingImageToIcon(DrawingImage drawingImage)
     {
-        // 使用高分辨率渲染 (256x256) 以确保清晰度
-        int size = 256;
+        // 使用适中分辨率渲染，减少 GDI+ 负担
+        int size = 64;
         var drawingVisual = new DrawingVisual();
         using (var drawingContext = drawingVisual.RenderOpen())
         {
@@ -418,7 +431,16 @@ public class TrayIconManager : IDisposable
         stream.Position = 0;
 
         using var bmp = new Bitmap(stream);
-        return Icon.FromHandle(bmp.GetHicon());
+        IntPtr hIcon = bmp.GetHicon();
+        try
+        {
+            // 用 Icon 构造函数克隆一份，然后立即释放原生 GDI 句柄
+            return (Icon)Icon.FromHandle(hIcon).Clone();
+        }
+        finally
+        {
+            DestroyIcon(hIcon);
+        }
     }
 
     public void Dispose()
