@@ -135,7 +135,7 @@ public class PetAnimationGenerator
         global::System.Windows.Point hipRaw = new(centerX - 16, centerY + 10 - bounce);
         global::System.Windows.Point shoulderRaw = new(centerX + 16, centerY + 10 - bounce);
         global::System.Windows.Point neckRaw = new(centerX + 20, centerY - 8 - bounce);
-        global::System.Windows.Point tailRaw = new(centerX - 25, centerY + 3 - bounce);
+        global::System.Windows.Point tailRaw = new(centerX - 20, centerY - 2 - bounce);
 
         // 2. 变换坐标
         global::System.Windows.Point hipPos = bodyTransform.Transform(hipRaw);
@@ -156,9 +156,13 @@ public class PetAnimationGenerator
         DrawLeg(group, new global::System.Windows.Point(hipPos.X - 3, hipPos.Y), backLegL, _furBrushDark);
         DrawLeg(group, new global::System.Windows.Point(shoulderPos.X - 3, shoulderPos.Y), frontLegL, _furBrushDark);
 
-        // 尾巴 (适中频率摇晃)
-        double tailWag = Math.Sin(phase * 6.0) * 5;
-        DrawFluffyBall(group, tailPos.X - 6, tailPos.Y - 6 + tailWag, 14, 14, _furBrushDark);
+        // 尾巴（根部贴身体左边缘，向上延伸并摆动）
+        double tailSwing = Math.Sin(phase * 6.0) * 25; // 摆动角度±25°
+        double tailBaseX = tailPos.X;
+        double tailBaseY = tailPos.Y;
+        var tailGeom = new EllipseGeometry(new Rect(tailBaseX - 5, tailBaseY - 16, 10, 18));
+        tailGeom.Transform = new RotateTransform(tailSwing, tailBaseX, tailBaseY); // 以根部为支点
+        group.Children.Add(new GeometryDrawing(_furBrushDark, null, tailGeom));
 
         // 身体 (旋转的椭圆，上下窄一些)
         var bodyGeom = new EllipseGeometry(new Rect(centerX - 20, centerY - 4 - bounce, 48, 26));
@@ -202,13 +206,14 @@ public class PetAnimationGenerator
     /// </summary>
     private void DrawRunningSideHead(DrawingGroup group, double hx, double hy, double runCycle)
     {
-        // 耳朵向后飘动（直接用位置偏移，不用旋转）
+        // 耳朵向后下方四十五度飘动
         double earSway = Math.Sin(runCycle * 1.2) * 4;
-        // 耳朵固定端在头顶偏左，自由端向左后方延伸
-        double earBaseX = hx - 4;      // 根部 x：更贴近头顶中心
-        double earBaseY = hy - 12;     // 根部 y：头顶
-        double earTipX = earBaseX - 14 - earSway; // 尖端向左（后方）飘动
-        double earTipY = earBaseY - 6 + earSway;  // 尖端略向上
+        // 耳朵固定端在头顶
+        double earBaseX = hx - 4;
+        double earBaseY = hy - 12;
+        // 尖端向左下方延伸（后下45°）
+        double earTipX = earBaseX - 12 - earSway;
+        double earTipY = earBaseY + 12 + earSway;  // 向下延伸
 
         // --- 头部主体（先画，作为底层）---
         DrawSmoothBall(group, hx - 10, hy - 18, 28, 32, _furBrushLight);
