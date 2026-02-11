@@ -9,6 +9,7 @@ namespace WangDesk.App.Models;
 public class AppSettings : INotifyPropertyChanged
 {
     private int _reminderIntervalMinutes = 45;
+    private int _breakIntervalMinutes = 5;
     private bool _autoStartEnabled;
 
     /// <summary>
@@ -18,6 +19,15 @@ public class AppSettings : INotifyPropertyChanged
     {
         get => _reminderIntervalMinutes;
         set => SetProperty(ref _reminderIntervalMinutes, value);
+    }
+
+    /// <summary>
+    /// 休息间隔（分钟）
+    /// </summary>
+    public int BreakIntervalMinutes
+    {
+        get => _breakIntervalMinutes;
+        set => SetProperty(ref _breakIntervalMinutes, value);
     }
 
     /// <summary>

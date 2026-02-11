@@ -43,7 +43,9 @@ public partial class App : global::System.Windows.Application
         _systemMonitorService = new SystemMonitorService();
 
         // 定时提醒服务（使用设置中的默认间隔）
-        _reminderService = new ReminderService(_settingsService.CurrentSettings.ReminderIntervalMinutes);
+        _reminderService = new ReminderService(
+            _settingsService.CurrentSettings.ReminderIntervalMinutes,
+            _settingsService.CurrentSettings.BreakIntervalMinutes);
 
         // 开机自启服务
         _autoStartService = new AutoStartService();

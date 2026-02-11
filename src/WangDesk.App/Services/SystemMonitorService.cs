@@ -25,6 +25,8 @@ public class SystemMonitorService : ISystemMonitorService, IDisposable
     private long _lastBytesReceived;
     private DateTime _lastNetworkCheck;
     private readonly object _lockObject = new();
+    private PerformanceCounter[]? _gpuCounters;
+    private DateTime _lastGpuCounterRefresh = DateTime.MinValue;
 
     public event EventHandler<SystemMetrics>? MetricsUpdated;
 
@@ -112,6 +114,9 @@ public class SystemMonitorService : ISystemMonitorService, IDisposable
             var (sentSpeed, receivedSpeed) = GetNetworkSpeed();
             metrics.NetworkSent = sentSpeed;
             metrics.NetworkReceived = receivedSpeed;
+
+            // GPU 信息
+            metrics.GpuUsage = Math.Round(GetGpuUsage(), 1);
         }
         catch (Exception)
         {
@@ -217,6 +222,92 @@ public class SystemMonitorService : ISystemMonitorService, IDisposable
         _cpuUserCounter?.Dispose();
         _cpuKernelCounter?.Dispose();
         _cancellationTokenSource?.Dispose();
+        DisposeGpuCounters();
+    }
+
+    private double GetGpuUsage()
+    {
+        try
+        {
+            // 每 5 秒刷新一次 GPU 计数器实例列表（因为进程会变化）
+            if (_gpuCounters == null || (DateTime.Now - _lastGpuCounterRefresh).TotalSeconds > 5)
+            {
+                RefreshGpuCounters();
+            }
+
+            if (_gpuCounters == null || _gpuCounters.Length == 0)
+                return 0;
+
+            double total = 0;
+            foreach (var counter in _gpuCounters)
+            {
+                try
+                {
+                    total += counter.NextValue();
+                }
+                catch
+                {
+                    // 某些实例可能已失效，忽略
+                }
+            }
+
+            return Math.Min(total, 100);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private void RefreshGpuCounters()
+    {
+        try
+        {
+            DisposeGpuCounters();
+
+            var category = new PerformanceCounterCategory("GPU Engine");
+            var instances = category.GetInstanceNames();
+
+            // 只取包含 engtype_3D 的实例（3D 引擎最能反映 GPU 负载）
+            var engineInstances = instances
+                .Where(name => name.Contains("engtype_3D", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            var counters = new List<PerformanceCounter>();
+            foreach (var instance in engineInstances)
+            {
+                try
+                {
+                    var pc = new PerformanceCounter("GPU Engine", "Utilization Percentage", instance);
+                    pc.NextValue(); // 预热
+                    counters.Add(pc);
+                }
+                catch
+                {
+                    // 忽略无效实例
+                }
+            }
+
+            _gpuCounters = counters.ToArray();
+            _lastGpuCounterRefresh = DateTime.Now;
+        }
+        catch
+        {
+            _gpuCounters = Array.Empty<PerformanceCounter>();
+            _lastGpuCounterRefresh = DateTime.Now;
+        }
+    }
+
+    private void DisposeGpuCounters()
+    {
+        if (_gpuCounters != null)
+        {
+            foreach (var c in _gpuCounters)
+            {
+                try { c.Dispose(); } catch { }
+            }
+            _gpuCounters = null;
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]

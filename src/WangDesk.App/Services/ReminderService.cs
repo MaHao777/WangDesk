@@ -9,31 +9,52 @@ public class ReminderService : IReminderService, IDisposable
 {
     private System.Timers.Timer? _timer;
     private DateTime _startTime;
-    private int _intervalMinutes;
+    private int _focusIntervalMinutes;
+    private int _breakIntervalMinutes;
+    private PomodoroMode _currentMode = PomodoroMode.Focus;
     private readonly object _lockObject = new();
 
     public bool IsRunning => _timer?.Enabled ?? false;
+    public PomodoroMode CurrentMode => _currentMode;
+    public int FocusIntervalMinutes => _focusIntervalMinutes;
+    public int BreakIntervalMinutes => _breakIntervalMinutes;
 
-    public event EventHandler? ReminderTriggered;
+    public event EventHandler<ReminderTriggeredEventArgs>? ReminderTriggered;
 
-    public ReminderService(int defaultIntervalMinutes = 45)
+    public ReminderService(int defaultFocusIntervalMinutes = 45, int defaultBreakIntervalMinutes = 5)
     {
-        _intervalMinutes = defaultIntervalMinutes;
+        _focusIntervalMinutes = ClampMinutes(defaultFocusIntervalMinutes);
+        _breakIntervalMinutes = ClampMinutes(defaultBreakIntervalMinutes);
     }
 
-    public void Start()
+    public void StartFocus()
     {
         lock (_lockObject)
         {
-            if (_timer == null)
-            {
-                _timer = new System.Timers.Timer(1000); // 每秒更新一次
-                _timer.Elapsed += OnTimerElapsed;
-            }
-
-            _startTime = DateTime.Now;
-            _timer.Start();
+            _currentMode = PomodoroMode.Focus;
+            StartTimer();
         }
+    }
+
+    public void StartBreak()
+    {
+        lock (_lockObject)
+        {
+            _currentMode = PomodoroMode.Break;
+            StartTimer();
+        }
+    }
+
+    private void StartTimer()
+    {
+        if (_timer == null)
+        {
+            _timer = new System.Timers.Timer(1000); // 每秒更新一次
+            _timer.Elapsed += OnTimerElapsed;
+        }
+
+        _startTime = DateTime.Now;
+        _timer.Start();
     }
 
     public void Stop()
@@ -55,13 +76,26 @@ public class ReminderService : IReminderService, IDisposable
 
     public void SetInterval(int minutes)
     {
-        if (minutes < 1) minutes = 1;
-        if (minutes > 180) minutes = 180;
+        var normalized = ClampMinutes(minutes);
 
         lock (_lockObject)
         {
-            _intervalMinutes = minutes;
-            if (IsRunning)
+            _focusIntervalMinutes = normalized;
+            if (IsRunning && _currentMode == PomodoroMode.Focus)
+            {
+                _startTime = DateTime.Now;
+            }
+        }
+    }
+
+    public void SetBreakInterval(int minutes)
+    {
+        var normalized = ClampMinutes(minutes);
+
+        lock (_lockObject)
+        {
+            _breakIntervalMinutes = normalized;
+            if (IsRunning && _currentMode == PomodoroMode.Break)
             {
                 _startTime = DateTime.Now;
             }
@@ -79,11 +113,11 @@ public class ReminderService : IReminderService, IDisposable
         {
             if (!IsRunning)
             {
-                return TimeSpan.FromMinutes(_intervalMinutes);
+                return TimeSpan.FromMinutes(GetCurrentIntervalMinutes());
             }
 
             var elapsed = DateTime.Now - _startTime;
-            var remaining = TimeSpan.FromMinutes(_intervalMinutes) - elapsed;
+            var remaining = TimeSpan.FromMinutes(GetCurrentIntervalMinutes()) - elapsed;
             return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
         }
     }
@@ -95,12 +129,25 @@ public class ReminderService : IReminderService, IDisposable
             if (!IsRunning) return;
 
             var elapsed = DateTime.Now - _startTime;
-            if (elapsed.TotalMinutes >= _intervalMinutes)
+            var intervalMinutes = GetCurrentIntervalMinutes();
+            if (elapsed.TotalMinutes >= intervalMinutes)
             {
                 _timer?.Stop();
-                ReminderTriggered?.Invoke(this, EventArgs.Empty);
+                ReminderTriggered?.Invoke(this, new ReminderTriggeredEventArgs(_currentMode));
             }
         }
+    }
+
+    private int GetCurrentIntervalMinutes()
+    {
+        return _currentMode == PomodoroMode.Break ? _breakIntervalMinutes : _focusIntervalMinutes;
+    }
+
+    private static int ClampMinutes(int minutes)
+    {
+        if (minutes < 1) return 1;
+        if (minutes > 180) return 180;
+        return minutes;
     }
 
     public void Dispose()

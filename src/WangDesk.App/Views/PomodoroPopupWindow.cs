@@ -30,9 +30,12 @@ public class PomodoroPopupWindow : IDisposable
     public bool IsOpen => _popup.IsOpen && !_isClosing;
 
     private TextBlock _timeText = null!;
+    private TextBlock _statusText = null!;
     private Path _progressPath = null!;
-    private Slider _intervalSlider = null!;
-    private TextBlock _intervalValueLabel = null!;
+    private Slider _focusIntervalSlider = null!;
+    private TextBlock _focusIntervalValueLabel = null!;
+    private Slider _breakIntervalSlider = null!;
+    private TextBlock _breakIntervalValueLabel = null!;
     private Border _toggleButtonBorder = null!;
     private TextBlock _toggleButtonText = null!;
 
@@ -197,6 +200,7 @@ public class PomodoroPopupWindow : IDisposable
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var canvas = new Canvas
         {
@@ -262,17 +266,17 @@ public class PomodoroPopupWindow : IDisposable
         };
         canvas.Children.Add(_progressPath);
 
-        var statusText = new TextBlock
+        _statusText = new TextBlock
         {
             Foreground = TomatoColor,
             FontSize = 12,
             FontWeight = FontWeights.Medium,
-            Text = "🍅 番茄钟",
+            Text = "🍅 专注中",
             Width = CanvasSize,
             TextAlignment = TextAlignment.Center
         };
-        Canvas.SetTop(statusText, center - 30);
-        canvas.Children.Add(statusText);
+        Canvas.SetTop(_statusText, center - 30);
+        canvas.Children.Add(_statusText);
 
         _timeText = new TextBlock
         {
@@ -288,22 +292,22 @@ public class PomodoroPopupWindow : IDisposable
         Grid.SetRow(canvas, 0);
         grid.Children.Add(canvas);
 
-        var intervalPanel = new StackPanel
+        var focusIntervalPanel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 16),
+            Margin = new Thickness(0, 0, 0, 10),
             HorizontalAlignment = HorizontalAlignment.Center
         };
-        var intervalLabel = new TextBlock
+        var focusIntervalLabel = new TextBlock
         {
-            Text = "⏱ 时长",
+            Text = "专注时长",
             Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 180, 180)),
             Width = 55,
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13
         };
-        _intervalSlider = CreateStyledSlider();
-        _intervalValueLabel = new TextBlock
+        _focusIntervalSlider = CreateStyledSlider();
+        _focusIntervalValueLabel = new TextBlock
         {
             Foreground = System.Windows.Media.Brushes.White,
             Width = 50,
@@ -312,12 +316,43 @@ public class PomodoroPopupWindow : IDisposable
             FontSize = 13,
             FontWeight = FontWeights.Medium
         };
-        _intervalSlider.ValueChanged += OnIntervalChanged;
-        intervalPanel.Children.Add(intervalLabel);
-        intervalPanel.Children.Add(_intervalSlider);
-        intervalPanel.Children.Add(_intervalValueLabel);
-        Grid.SetRow(intervalPanel, 1);
-        grid.Children.Add(intervalPanel);
+        _focusIntervalSlider.ValueChanged += OnFocusIntervalChanged;
+        focusIntervalPanel.Children.Add(focusIntervalLabel);
+        focusIntervalPanel.Children.Add(_focusIntervalSlider);
+        focusIntervalPanel.Children.Add(_focusIntervalValueLabel);
+        Grid.SetRow(focusIntervalPanel, 1);
+        grid.Children.Add(focusIntervalPanel);
+
+        var breakIntervalPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 16),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        var breakIntervalLabel = new TextBlock
+        {
+            Text = "休息时长",
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 180, 180)),
+            Width = 55,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13
+        };
+        _breakIntervalSlider = CreateStyledSlider();
+        _breakIntervalValueLabel = new TextBlock
+        {
+            Foreground = System.Windows.Media.Brushes.White,
+            Width = 50,
+            Margin = new Thickness(10, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13,
+            FontWeight = FontWeights.Medium
+        };
+        _breakIntervalSlider.ValueChanged += OnBreakIntervalChanged;
+        breakIntervalPanel.Children.Add(breakIntervalLabel);
+        breakIntervalPanel.Children.Add(_breakIntervalSlider);
+        breakIntervalPanel.Children.Add(_breakIntervalValueLabel);
+        Grid.SetRow(breakIntervalPanel, 2);
+        grid.Children.Add(breakIntervalPanel);
 
         var buttonPanel = new StackPanel
         {
@@ -328,7 +363,7 @@ public class PomodoroPopupWindow : IDisposable
         // 圆角胶囊切换按钮
         _toggleButtonText = new TextBlock
         {
-            Text = "▶  启动",
+            Text = "▶ 开始专注",
             Foreground = System.Windows.Media.Brushes.White,
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
@@ -374,7 +409,7 @@ public class PomodoroPopupWindow : IDisposable
         };
 
         buttonPanel.Children.Add(_toggleButtonBorder);
-        Grid.SetRow(buttonPanel, 2);
+        Grid.SetRow(buttonPanel, 3);
         grid.Children.Add(buttonPanel);
 
         _rootBorder.Child = grid;
@@ -483,22 +518,39 @@ public class PomodoroPopupWindow : IDisposable
     private void LoadSettings()
     {
         var settings = _settingsService.CurrentSettings;
-        _intervalSlider.Value = settings.ReminderIntervalMinutes;
-        _intervalValueLabel.Text = $"{settings.ReminderIntervalMinutes} 分钟";
+        _focusIntervalSlider.Value = settings.ReminderIntervalMinutes;
+        _breakIntervalSlider.Value = settings.BreakIntervalMinutes;
+        _focusIntervalValueLabel.Text = $"{settings.ReminderIntervalMinutes} 分钟";
+        _breakIntervalValueLabel.Text = $"{settings.BreakIntervalMinutes} 分钟";
     }
 
-    private void OnIntervalChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    private void OnFocusIntervalChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
-        _intervalValueLabel.Text = $"{(int)_intervalSlider.Value} 分钟";
+        _focusIntervalValueLabel.Text = $"{(int)_focusIntervalSlider.Value} 分钟";
         if (_reminderService.IsRunning)
         {
             return;
         }
 
         var settings = _settingsService.CurrentSettings;
-        settings.ReminderIntervalMinutes = (int)_intervalSlider.Value;
+        settings.ReminderIntervalMinutes = (int)_focusIntervalSlider.Value;
         _settingsService.SaveSettings();
         _reminderService.SetInterval(settings.ReminderIntervalMinutes);
+        UpdateDisplay();
+    }
+
+    private void OnBreakIntervalChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        _breakIntervalValueLabel.Text = $"{(int)_breakIntervalSlider.Value} 分钟";
+        if (_reminderService.IsRunning)
+        {
+            return;
+        }
+
+        var settings = _settingsService.CurrentSettings;
+        settings.BreakIntervalMinutes = (int)_breakIntervalSlider.Value;
+        _settingsService.SaveSettings();
+        _reminderService.SetBreakInterval(settings.BreakIntervalMinutes);
         UpdateDisplay();
     }
 
@@ -510,7 +562,7 @@ public class PomodoroPopupWindow : IDisposable
         }
         else
         {
-            _reminderService.Start();
+            _reminderService.StartFocus();
         }
         UpdateDisplay();
     }
@@ -519,11 +571,18 @@ public class PomodoroPopupWindow : IDisposable
     {
         var remaining = _reminderService.GetRemainingTime();
         _timeText.Text = $"{(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}";
+        _statusText.Text = _reminderService.CurrentMode == PomodoroMode.Break ? "🌿 休息中" : "🍅 专注中";
         UpdateProgress(remaining);
 
         var isRunning = _reminderService.IsRunning;
-        _intervalSlider.IsEnabled = !isRunning;
+        _focusIntervalSlider.IsEnabled = !isRunning;
+        _breakIntervalSlider.IsEnabled = !isRunning;
         UpdateToggleButtonStyle();
+    }
+
+    public void RefreshDisplay()
+    {
+        UpdateDisplay();
     }
 
     private void UpdateToggleButtonStyle()
@@ -531,13 +590,13 @@ public class PomodoroPopupWindow : IDisposable
         var isRunning = _reminderService.IsRunning;
         if (isRunning)
         {
-            _toggleButtonText.Text = "■  停止";
+            _toggleButtonText.Text = "■ 停止";
             _toggleButtonBorder.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(130, 65, 65));
             ((DropShadowEffect)_toggleButtonBorder.Effect).Color = System.Windows.Media.Color.FromRgb(130, 65, 65);
         }
         else
         {
-            _toggleButtonText.Text = "▶  启动";
+            _toggleButtonText.Text = "▶ 开始专注";
             _toggleButtonBorder.Background = TomatoColor;
             ((DropShadowEffect)_toggleButtonBorder.Effect).Color = System.Windows.Media.Color.FromRgb(239, 89, 80);
         }
@@ -545,7 +604,10 @@ public class PomodoroPopupWindow : IDisposable
 
     private void UpdateProgress(TimeSpan remaining)
     {
-        var totalSeconds = Math.Max(1, _settingsService.CurrentSettings.ReminderIntervalMinutes * 60);
+        var totalMinutes = _reminderService.CurrentMode == PomodoroMode.Break
+            ? _settingsService.CurrentSettings.BreakIntervalMinutes
+            : _settingsService.CurrentSettings.ReminderIntervalMinutes;
+        var totalSeconds = Math.Max(1, totalMinutes * 60);
         var remainingSeconds = Math.Max(0, remaining.TotalSeconds);
         var elapsedSeconds = totalSeconds - remainingSeconds;
         var progress = elapsedSeconds / totalSeconds;

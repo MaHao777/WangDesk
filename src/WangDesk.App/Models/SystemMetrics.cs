@@ -19,6 +19,7 @@ public class SystemMetrics : INotifyPropertyChanged
     private double _memoryAvailableGB;
     private string _networkSent = "0 B/s";
     private string _networkReceived = "0 B/s";
+    private double _gpuUsage;
 
     public double CpuUsage
     {
@@ -78,6 +79,12 @@ public class SystemMetrics : INotifyPropertyChanged
     {
         get => _networkReceived;
         set => SetProperty(ref _networkReceived, value);
+    }
+
+    public double GpuUsage
+    {
+        get => _gpuUsage;
+        set => SetProperty(ref _gpuUsage, value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

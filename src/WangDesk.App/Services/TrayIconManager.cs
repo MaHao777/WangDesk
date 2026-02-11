@@ -29,6 +29,7 @@ public class TrayIconManager : IDisposable
     private readonly IReminderService _reminderService;
     private readonly IAutoStartService _autoStartService;
     private SettingsWindow? _settingsWindow;
+    private SettingsPopupWindow? _settingsPopupWindow;
     private PomodoroPopupWindow? _pomodoroPopupWindow;
     private ReminderPopupWindow? _reminderPopupWindow;
     private bool _isFlashing;
@@ -88,13 +89,13 @@ public class TrayIconManager : IDisposable
     /// <summary>
     /// 更新动画
     /// </summary>
-    private void OnReminderTriggered(object? sender, EventArgs e)
+    private void OnReminderTriggered(object? sender, ReminderTriggeredEventArgs e)
     {
         try
         {
             System.Windows.Application.Current.Dispatcher.Invoke(() =>
             {
-                ShowReminderPopup();
+                ShowReminderPopup(e.CompletedMode);
             });
         }
         catch
@@ -102,10 +103,28 @@ public class TrayIconManager : IDisposable
         }
     }
 
-    private void ShowReminderPopup()
+    private void ShowReminderPopup(PomodoroMode completedMode)
     {
         _reminderPopupWindow?.Close();
-        _reminderPopupWindow = new ReminderPopupWindow();
+        _reminderPopupWindow = completedMode == PomodoroMode.Focus
+            ? new ReminderPopupWindow(
+                "时间到啦！",
+                "点击知道了后开始休息",
+                "知道了",
+                () =>
+                {
+                    _reminderService.StartBreak();
+                    _pomodoroPopupWindow?.RefreshDisplay();
+                })
+            : new ReminderPopupWindow(
+                "休息结束",
+                "该开始下一轮专注了",
+                "开始专注",
+                () =>
+                {
+                    _reminderService.StartFocus();
+                    _pomodoroPopupWindow?.RefreshDisplay();
+                });
         var screenPoint = System.Windows.Forms.Cursor.Position;
         _reminderPopupWindow.ShowNearScreenPoint(screenPoint);
     }
@@ -205,13 +224,14 @@ public class TrayIconManager : IDisposable
         var metrics = _systemMonitor.GetMetrics();
         var storage = _systemMonitor.GetStorageInfo();
         var remaining = _reminderService.GetRemainingTime();
+        var modeLabel = _reminderService.CurrentMode == PomodoroMode.Break ? "休息" : "专注";
 
         var tooltip = $"旺旺桌宠\n" +
                       $"CPU: {metrics.CpuUsage}%\n" +
                       $"内存: {metrics.MemoryUsagePercent}% ({metrics.MemoryUsedGB:F1}/{metrics.MemoryTotalGB:F1} GB)\n" +
                       $"上传: {metrics.NetworkSent}\n" +
                       $"下载: {metrics.NetworkReceived}\n" +
-                      $"番茄时间剩余: {(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}min";
+                      $"{modeLabel}剩余: {(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}min";
 
         _notifyIcon!.Text = tooltip.Length > 127 ? tooltip[..127] : tooltip;
     }
@@ -237,7 +257,7 @@ public class TrayIconManager : IDisposable
         }
         else if (e.Button == MouseButtons.Right)
         {
-            ShowContextMenu();
+            ShowSettingsPopup(e.Location);
         }
     }
 
@@ -250,112 +270,25 @@ public class TrayIconManager : IDisposable
     }
 
     /// <summary>
-    /// 显示上下文菜单
+    /// 显示设置弹窗（切换显示/隐藏）
     /// </summary>
-    private void ShowContextMenu()
+    private void ShowSettingsPopup(System.Drawing.Point point)
     {
-        var contextMenu = new System.Windows.Controls.ContextMenu();
-
-        // 系统状态菜单项
-        var statusItem = new System.Windows.Controls.MenuItem { Header = "系统状态" };
-        var metrics = _systemMonitor.GetMetrics();
-        var storage = _systemMonitor.GetStorageInfo();
-
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem
+        // 如果设置弹窗已经显示，则关闭它
+        if (_settingsPopupWindow != null && _settingsPopupWindow.IsOpen)
         {
-            Header = $"CPU: {metrics.CpuUsage}%",
-            IsEnabled = false
-        });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem
-        {
-            Header = $"User: {metrics.CpuUserUsage}%",
-            IsEnabled = false
-        });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem
-        {
-            Header = $"Kernel: {metrics.CpuKernelUsage}%",
-            IsEnabled = false
-        });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem
-        {
-            Header = $"Available: {metrics.CpuAvailable}%",
-            IsEnabled = false
-        });
-        statusItem.Items.Add(new System.Windows.Controls.Separator());
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem
-        {
-            Header = $"Memory: {metrics.MemoryUsagePercent}%",
-            IsEnabled = false
-        });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem
-        {
-            Header = $"Total: {metrics.MemoryTotalGB:F2} GB",
-            IsEnabled = false
-        });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem
-        {
-            Header = $"Used: {metrics.MemoryUsedGB:F2} GB",
-            IsEnabled = false
-        });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem
-        {
-            Header = $"Available: {metrics.MemoryAvailableGB:F2} GB",
-            IsEnabled = false
-        });
-
-        // 存储信息
-        statusItem.Items.Add(new System.Windows.Controls.Separator());
-        foreach (var drive in storage)
-        {
-            var driveItem = new System.Windows.Controls.MenuItem { Header = drive.DriveName };
-            driveItem.Items.Add(new System.Windows.Controls.MenuItem
-            {
-                Header = $"{drive.DriveLetter} Drive: {drive.UsagePercent}%",
-                IsEnabled = false
-            });
-            driveItem.Items.Add(new System.Windows.Controls.MenuItem
-            {
-                Header = $"Used: {drive.UsedGB:F2} GB",
-                IsEnabled = false
-            });
-            driveItem.Items.Add(new System.Windows.Controls.MenuItem
-            {
-                Header = $"Available: {drive.AvailableGB:F2} GB",
-                IsEnabled = false
-            });
-            statusItem.Items.Add(driveItem);
+            _settingsPopupWindow.Close();
+            return;
         }
 
-        // 网络信息
-        statusItem.Items.Add(new System.Windows.Controls.Separator());
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem
-        {
-            Header = $"Sent: {metrics.NetworkSent}",
-            IsEnabled = false
-        });
-        statusItem.Items.Add(new System.Windows.Controls.MenuItem
-        {
-            Header = $"Received: {metrics.NetworkReceived}",
-            IsEnabled = false
-        });
-
-        contextMenu.Items.Add(statusItem);
-        contextMenu.Items.Add(new System.Windows.Controls.Separator());
-
-        // 设置菜单项
-        var settingsItem = new System.Windows.Controls.MenuItem { Header = "设置" };
-        settingsItem.Click += (s, e) => ShowSettingsWindow();
-        contextMenu.Items.Add(settingsItem);
-
-        contextMenu.Items.Add(new System.Windows.Controls.Separator());
-
-        // 退出菜单项
-        var exitItem = new System.Windows.Controls.MenuItem { Header = "退出" };
-        exitItem.Click += (s, e) => ShutdownApplication();
-        contextMenu.Items.Add(exitItem);
-
-        // 显示菜单
-        contextMenu.IsOpen = true;
+        _settingsPopupWindow?.Dispose();
+        _settingsPopupWindow = new SettingsPopupWindow(
+            _settingsService,
+            _autoStartService,
+            _systemMonitor,
+            ShutdownApplication);
+        var screenPoint = System.Windows.Forms.Cursor.Position;
+        _settingsPopupWindow.ShowNearScreenPoint(screenPoint);
     }
 
     /// <summary>
@@ -396,6 +329,7 @@ public class TrayIconManager : IDisposable
     private void OnSettingsChanged(object? sender, AppSettings settings)
     {
         _reminderService.SetInterval(settings.ReminderIntervalMinutes);
+        _reminderService.SetBreakInterval(settings.BreakIntervalMinutes);
         _autoStartService.SetAutoStart(settings.AutoStartEnabled);
     }
 
@@ -455,6 +389,7 @@ public class TrayIconManager : IDisposable
         _normalIcon?.Dispose();
         _notifyIcon?.Dispose();
         _settingsWindow?.Close();
+        _settingsPopupWindow?.Close();
         _pomodoroPopupWindow?.Close();
         _reminderPopupWindow?.Close();
     }

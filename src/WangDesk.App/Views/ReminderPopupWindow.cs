@@ -21,6 +21,10 @@ namespace WangDesk.App.Views;
 public class ReminderPopupWindow : IDisposable
 {
     private readonly Popup _popup;
+    private readonly Action? _onAcknowledge;
+    private readonly string _title;
+    private readonly string _hint;
+    private readonly string _buttonText;
     private DispatcherTimer? _autoCloseTimer;
     private DispatcherTimer? _closeTimer;
     private Border? _rootBorder;
@@ -33,8 +37,17 @@ public class ReminderPopupWindow : IDisposable
 
     public bool IsOpen => _popup.IsOpen && !_isClosing;
 
-    public ReminderPopupWindow()
+    public ReminderPopupWindow(
+        string title = "时间到啦！",
+        string hint = "休息一下吧~",
+        string buttonText = "知道了",
+        Action? onAcknowledge = null)
     {
+        _title = title;
+        _hint = hint;
+        _buttonText = buttonText;
+        _onAcknowledge = onAcknowledge;
+
         _popup = new Popup
         {
             AllowsTransparency = true,
@@ -209,7 +222,7 @@ public class ReminderPopupWindow : IDisposable
         // 标题
         var titleText = new TextBlock
         {
-            Text = "时间到啦！",
+            Text = _title,
             Foreground = TomatoColor,
             FontSize = 18,
             FontWeight = FontWeights.Bold,
@@ -221,7 +234,7 @@ public class ReminderPopupWindow : IDisposable
         // 提示文字
         var hintText = new TextBlock
         {
-            Text = "休息一下吧~",
+            Text = _hint,
             Foreground = new SolidColorBrush(Color.FromRgb(180, 180, 185)),
             FontSize = 13,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -232,7 +245,7 @@ public class ReminderPopupWindow : IDisposable
         // 关闭按钮
         var closeButton = new Button
         {
-            Content = "知道了",
+            Content = _buttonText,
             Width = 90,
             Height = 30,
             FontSize = 12,
@@ -252,7 +265,11 @@ public class ReminderPopupWindow : IDisposable
         closeButton.MouseLeave += (s, e) => closeButton.Background = defaultBg;
         closeButton.PreviewMouseDown += (s, e) => closeButton.Background = pressedBg;
         closeButton.PreviewMouseUp += (s, e) => closeButton.Background = closeButton.IsMouseOver ? hoverBg : defaultBg;
-        closeButton.Click += (s, e) => Close();
+        closeButton.Click += (s, e) =>
+        {
+            _onAcknowledge?.Invoke();
+            Close();
+        };
 
         stack.Children.Add(closeButton);
 
