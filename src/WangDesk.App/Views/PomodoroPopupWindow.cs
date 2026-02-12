@@ -7,6 +7,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.Runtime.InteropServices;
 using WangDesk.App.Services;
 
 using Button = System.Windows.Controls.Button;
@@ -47,6 +48,11 @@ public class PomodoroPopupWindow : IDisposable
     private static readonly SolidColorBrush TomatoDarkColor = new(System.Windows.Media.Color.FromRgb(200, 70, 60));
     private static readonly SolidColorBrush BgColor = new(System.Windows.Media.Color.FromRgb(40, 40, 45));
     private static readonly SolidColorBrush BgLightColor = new(System.Windows.Media.Color.FromRgb(55, 55, 60));
+    private const int VkLButton = 0x01;
+    private const int VkRButton = 0x02;
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
 
     public PomodoroPopupWindow(ISettingsService settingsService, IReminderService reminderService)
     {
@@ -78,6 +84,7 @@ public class PomodoroPopupWindow : IDisposable
     {
         _mouseHasEntered = false;
         _isClosing = false;
+        ResetOutsideClickState();
         _popup.PlacementRectangle = new Rect(
             screenPoint.X - 140,
             screenPoint.Y - 10,
@@ -171,10 +178,22 @@ public class PomodoroPopupWindow : IDisposable
         {
             _mouseHasEntered = true;
         }
-        else if (_mouseHasEntered)
+        else if (HasOutsideClick() || _mouseHasEntered)
         {
             Close();
         }
+    }
+
+    private static bool HasOutsideClick()
+    {
+        return (GetAsyncKeyState(VkLButton) & 0x0001) != 0 ||
+               (GetAsyncKeyState(VkRButton) & 0x0001) != 0;
+    }
+
+    private static void ResetOutsideClickState()
+    {
+        _ = GetAsyncKeyState(VkLButton);
+        _ = GetAsyncKeyState(VkRButton);
     }
 
     private void InitializeComponent()

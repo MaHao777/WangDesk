@@ -9,4 +9,4 @@
 ## 运行
 dotnet run --project src/WangDesk.App/WangDesk.App.csproj
 ## 构建
-dotnet build --project src/WangDesk.App/WangDesk.App.csproj
+dotnet build src/WangDesk.App/WangDesk.App.csproj

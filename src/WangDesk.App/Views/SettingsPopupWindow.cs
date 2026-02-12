@@ -7,6 +7,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.Runtime.InteropServices;
 using WangDesk.App.Models;
 using WangDesk.App.Services;
 
@@ -53,6 +54,11 @@ public class SettingsPopupWindow : IDisposable
     private static readonly SolidColorBrush BgLightColor = new(Color.FromRgb(55, 55, 60));
     private static readonly SolidColorBrush TextColor = new(Color.FromRgb(220, 220, 225));
     private static readonly SolidColorBrush SubTextColor = new(Color.FromRgb(150, 150, 155));
+    private const int VkLButton = 0x01;
+    private const int VkRButton = 0x02;
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
 
     public bool IsOpen => _popup.IsOpen && !_isClosing;
 
@@ -92,6 +98,7 @@ public class SettingsPopupWindow : IDisposable
     {
         _mouseHasEntered = false;
         _isClosing = false;
+        ResetOutsideClickState();
         _popup.PlacementRectangle = new Rect(
             screenPoint.X - 110,
             screenPoint.Y - 10,
@@ -194,10 +201,22 @@ public class SettingsPopupWindow : IDisposable
         {
             _mouseHasEntered = true;
         }
-        else if (_mouseHasEntered)
+        else if (HasOutsideClick() || _mouseHasEntered)
         {
             Close();
         }
+    }
+
+    private static bool HasOutsideClick()
+    {
+        return (GetAsyncKeyState(VkLButton) & 0x0001) != 0 ||
+               (GetAsyncKeyState(VkRButton) & 0x0001) != 0;
+    }
+
+    private static void ResetOutsideClickState()
+    {
+        _ = GetAsyncKeyState(VkLButton);
+        _ = GetAsyncKeyState(VkRButton);
     }
 
     private void InitializeComponent()

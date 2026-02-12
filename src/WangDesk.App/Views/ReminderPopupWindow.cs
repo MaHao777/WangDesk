@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
+using System.Runtime.InteropServices;
 
 using Button = System.Windows.Controls.Button;
 using Brushes = System.Windows.Media.Brushes;
@@ -34,6 +35,11 @@ public class ReminderPopupWindow : IDisposable
     private static readonly SolidColorBrush TomatoColor = new(Color.FromRgb(239, 89, 80));
     private static readonly SolidColorBrush BgColor = new(Color.FromRgb(40, 40, 45));
     private static readonly SolidColorBrush BgLightColor = new(Color.FromRgb(55, 55, 60));
+    private const int VkLButton = 0x01;
+    private const int VkRButton = 0x02;
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
 
     public bool IsOpen => _popup.IsOpen && !_isClosing;
 
@@ -72,6 +78,7 @@ public class ReminderPopupWindow : IDisposable
     {
         _mouseHasEntered = false;
         _isClosing = false;
+        ResetOutsideClickState();
         _popup.PlacementRectangle = new Rect(
             screenPoint.X - 120,
             screenPoint.Y - 10,
@@ -179,10 +186,22 @@ public class ReminderPopupWindow : IDisposable
             // 鼠标在内部时重置自动关闭
             _autoCloseTimer?.Stop();
         }
-        else if (_mouseHasEntered)
+        else if (HasOutsideClick() || _mouseHasEntered)
         {
             Close();
         }
+    }
+
+    private static bool HasOutsideClick()
+    {
+        return (GetAsyncKeyState(VkLButton) & 0x0001) != 0 ||
+               (GetAsyncKeyState(VkRButton) & 0x0001) != 0;
+    }
+
+    private static void ResetOutsideClickState()
+    {
+        _ = GetAsyncKeyState(VkLButton);
+        _ = GetAsyncKeyState(VkRButton);
     }
 
     private void InitializeComponent()

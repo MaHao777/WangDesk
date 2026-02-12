@@ -20,3 +20,8 @@ D:\VS_project\WangDesk\src\WangDesk.App\obj\Debug\net9.0-windows\refint\WangDesk
 D:\VS_project\WangDesk\src\WangDesk.App\obj\Debug\net9.0-windows\WangDesk.App.pdb
 D:\VS_project\WangDesk\src\WangDesk.App\obj\Debug\net9.0-windows\WangDesk.App.genruntimeconfig.cache
 D:\VS_project\WangDesk\src\WangDesk.App\obj\Debug\net9.0-windows\ref\WangDesk.App.dll
+d:\VS_project\WangDesk\artifacts\temp_build\WangDesk.App.exe
+d:\VS_project\WangDesk\artifacts\temp_build\WangDesk.App.deps.json
+d:\VS_project\WangDesk\artifacts\temp_build\WangDesk.App.runtimeconfig.json
+d:\VS_project\WangDesk\artifacts\temp_build\WangDesk.App.dll
+d:\VS_project\WangDesk\artifacts\temp_build\WangDesk.App.pdb
