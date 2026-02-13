@@ -3,6 +3,9 @@ bin/
 obj/
 out/
 artifacts/
+publish/
+[Dd]ebug/
+[Rr]elease/
 
 # Visual Studio
 .vs/
@@ -13,6 +16,13 @@ artifacts/
 *.vcxproj.user
 *.VC.db
 *.VC.opendb
+*.csproj.user
+launchSettings.json
+
+# ReSharper / DotCover
+_ReSharper*/
+*.DotSettings.user
+*.dotCover
 
 # Rider / IntelliJ
 .idea/
@@ -24,26 +34,39 @@ packages/
 *.snupkg
 project.lock.json
 project.fragment.lock.json
-artifacts/
 
-# MSBuild logs
+# WPF temp files
+*_wpftmp.csproj*
+
+# MSBuild
 msbuild.log
 msbuild.err
 msbuild.wrn
+[Bb]uild[Ll]og.*
+
+# Test results
+[Tt]est[Rr]esult*/
+TestResult.xml
 
 # OS files
 Thumbs.db
 Desktop.ini
+.DS_Store
+ehthumbs.db
 
 # Logs and temp
 *.log
 *.tmp
 *.bak
 *.swp
+*.cache
 
 # User secrets
 secrets.json
 secrets.*.json
 
-# Publish output
-publish/
+# opencode
+.opencode/
+
+# GitHub appmod
+.github/appmod/
