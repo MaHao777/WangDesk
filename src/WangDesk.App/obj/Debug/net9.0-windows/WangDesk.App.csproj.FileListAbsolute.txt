@@ -25,3 +25,8 @@ d:\VS_project\WangDesk\artifacts\temp_build\WangDesk.App.deps.json
 d:\VS_project\WangDesk\artifacts\temp_build\WangDesk.App.runtimeconfig.json
 d:\VS_project\WangDesk\artifacts\temp_build\WangDesk.App.dll
 d:\VS_project\WangDesk\artifacts\temp_build\WangDesk.App.pdb
+D:\VS_project\WangDesk\.codex_build_tmp\WangDesk.App.exe
+D:\VS_project\WangDesk\.codex_build_tmp\WangDesk.App.deps.json
+D:\VS_project\WangDesk\.codex_build_tmp\WangDesk.App.runtimeconfig.json
+D:\VS_project\WangDesk\.codex_build_tmp\WangDesk.App.dll
+D:\VS_project\WangDesk\.codex_build_tmp\WangDesk.App.pdb

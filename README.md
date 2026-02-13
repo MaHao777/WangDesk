@@ -1,12 +1,42 @@
-# 项目说明
-这是一个运行在底部状态栏的简单的软件项目，主要功能是提供快捷的常用功能，包括定时，设备状态查询以及单词翻译，项目名称为旺旺桌宠。
-# 项目功能具体说明
-当鼠标悬停在桌面图标上时，会显示一个菜单，菜单中包含以下功能：
-- 定时功能：可以开启定时器，到时间会提示休息，用户可以自定义定时时间。
-- 设备状态查询功能：当悬停在这个功能项时，会披露式的显示设备当前的cpu使用率，内存使用率，硬盘使用率，网速等信息。
-- 动画显示功能：桌面栏的图标是一只泰迪小狗不停的奔跑，其奔跑速度随cpu使用率而改变。
-# 软件运行和构建指令
-## 运行
+# WangDesk
+
+一个运行在 Windows 系统托盘的桌宠工具。  
+托盘图标是一只动态奔跑的泰迪小狗，奔跑速度会映射当前 CPU 使用率，并提供番茄钟与系统状态查看能力。
+
+![WangDesk 应用图标](src/WangDesk.App/assets/app.png)
+
+## 功能
+
+- 托盘小狗动画速度随 CPU 使用率变化
+- 左键点击托盘图标：打开番茄钟弹窗（专注/休息计时）
+- 右键点击托盘图标：打开系统状态与设置弹窗（CPU、内存、磁盘、开机自启等）
+
+## 运行环境
+
+- Windows 10/11
+- .NET 9 SDK
+
+## 快速开始
+
+```bash
+dotnet restore
 dotnet run --project src/WangDesk.App/WangDesk.App.csproj
+```
+
 ## 构建
+
+```bash
 dotnet build src/WangDesk.App/WangDesk.App.csproj
+```
+
+## 发布
+
+```bash
+dotnet publish src/WangDesk.App/WangDesk.App.csproj -c Release -r win-x64 --self-contained false
+```
+
+## 配置文件
+
+应用设置保存于：
+
+`%AppData%\WangDesk\settings.json`

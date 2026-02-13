@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -321,7 +321,7 @@ public class PomodoroPopupWindow : IDisposable
         {
             Text = "专注时长",
             Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 180, 180)),
-            Width = 55,
+            Width = 72,
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13
         };
@@ -329,8 +329,8 @@ public class PomodoroPopupWindow : IDisposable
         _focusIntervalValueLabel = new TextBlock
         {
             Foreground = System.Windows.Media.Brushes.White,
-            Width = 50,
-            Margin = new Thickness(10, 0, 0, 0),
+            Width = 44,
+            Margin = new Thickness(4, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13,
             FontWeight = FontWeights.Medium
@@ -352,7 +352,7 @@ public class PomodoroPopupWindow : IDisposable
         {
             Text = "休息时长",
             Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 180, 180)),
-            Width = 55,
+            Width = 72,
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13
         };
@@ -360,8 +360,8 @@ public class PomodoroPopupWindow : IDisposable
         _breakIntervalValueLabel = new TextBlock
         {
             Foreground = System.Windows.Media.Brushes.White,
-            Width = 50,
-            Margin = new Thickness(10, 0, 0, 0),
+            Width = 44,
+            Margin = new Thickness(4, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 13,
             FontWeight = FontWeights.Medium
@@ -379,7 +379,7 @@ public class PomodoroPopupWindow : IDisposable
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
-        // 圆角胶囊切换按钮
+        // 鍦嗚鑳跺泭鍒囨崲鎸夐挳
         _toggleButtonText = new TextBlock
         {
             Text = "▶ 开始专注",
@@ -439,7 +439,7 @@ public class PomodoroPopupWindow : IDisposable
     {
         var slider = new Slider
         {
-            Width = 130,
+            Width = 112,
             Minimum = 1,
             Maximum = 60,
             TickFrequency = 1,
