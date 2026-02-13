@@ -92,6 +92,34 @@ public class ReminderPopupWindow : IDisposable
         PlayOpenAnimation();
     }
 
+    public void ShowAtBottomRight(double rightMargin = 16, double bottomMargin = 16)
+    {
+        _mouseHasEntered = false;
+        _isClosing = false;
+        ResetOutsideClickState();
+
+        // Use WinForms screen working area (pixel coordinates) to match Popup absolute placement.
+        var workArea = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea
+                       ?? System.Windows.Forms.SystemInformation.WorkingArea;
+        var popupWidth = _rootBorder?.Width ?? 240;
+
+        double popupHeight = 140;
+        if (_rootBorder != null)
+        {
+            _rootBorder.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+            popupHeight = Math.Max(120, _rootBorder.DesiredSize.Height);
+        }
+
+        var x = workArea.Right - popupWidth - rightMargin;
+        var y = workArea.Bottom - popupHeight - bottomMargin;
+
+        _popup.PlacementRectangle = new Rect(x, y, 0, 0);
+        _popup.IsOpen = true;
+        _closeTimer?.Start();
+        _autoCloseTimer?.Start();
+        PlayOpenAnimation();
+    }
+
     public void Close()
     {
         if (_isClosing || !_popup.IsOpen) return;

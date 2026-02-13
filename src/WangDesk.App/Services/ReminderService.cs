@@ -124,6 +124,9 @@ public class ReminderService : IReminderService, IDisposable
 
     private void OnTimerElapsed(object? sender, ElapsedEventArgs e)
     {
+        bool shouldNotify = false;
+        PomodoroMode completedMode = PomodoroMode.Focus;
+
         lock (_lockObject)
         {
             if (!IsRunning) return;
@@ -133,8 +136,14 @@ public class ReminderService : IReminderService, IDisposable
             if (elapsed.TotalMinutes >= intervalMinutes)
             {
                 _timer?.Stop();
-                ReminderTriggered?.Invoke(this, new ReminderTriggeredEventArgs(_currentMode));
+                completedMode = _currentMode;
+                shouldNotify = true;
             }
+        }
+
+        if (shouldNotify)
+        {
+            ReminderTriggered?.Invoke(this, new ReminderTriggeredEventArgs(completedMode));
         }
     }
 

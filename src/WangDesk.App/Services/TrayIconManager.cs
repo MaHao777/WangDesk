@@ -93,7 +93,7 @@ public class TrayIconManager : IDisposable
     {
         try
         {
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
             {
                 ShowReminderPopup(e.CompletedMode);
             });
@@ -126,8 +126,7 @@ public class TrayIconManager : IDisposable
                     _reminderService.StartFocus();
                     _pomodoroPopupWindow?.RefreshDisplay();
                 });
-        var screenPoint = System.Windows.Forms.Cursor.Position;
-        _reminderPopupWindow.ShowNearScreenPoint(screenPoint);
+        _reminderPopupWindow.ShowAtBottomRight();
     }
 
     private void StartFlashing()
