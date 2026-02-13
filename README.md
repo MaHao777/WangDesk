@@ -3,7 +3,9 @@
 一个运行在 Windows 系统托盘的桌宠工具。  
 托盘图标是一只动态奔跑的泰迪小狗，奔跑速度会映射当前 CPU 使用率，并提供番茄钟与系统状态查看能力。
 
-![WangDesk 应用图标](src/WangDesk.App/assets/app.png)
+<p align="center">
+  <img src="src/WangDesk.App/assets/app.png" alt="WangDesk 应用图标" width="160" />
+</p>
 
 ## 功能
 

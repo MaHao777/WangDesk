@@ -18,4 +18,12 @@
     <Resource Include="assets\\app.ico" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="artifacts\\**\\*.cs" />
+    <EmbeddedResource Remove="artifacts\\**\\*" />
+    <None Remove="artifacts\\**\\*" />
+    <Page Remove="artifacts\\**\\*" />
+    <Resource Remove="artifacts\\**\\*" />
+  </ItemGroup>
+
 </Project>

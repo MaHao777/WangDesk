@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
@@ -33,6 +34,8 @@ public class ReminderPopupWindow : IDisposable
     private bool _mouseHasEntered;
 
     private static readonly SolidColorBrush TomatoColor = new(Color.FromRgb(239, 89, 80));
+    private static readonly SolidColorBrush TomatoHoverColor = new(Color.FromRgb(255, 114, 103));
+    private static readonly SolidColorBrush TomatoPressedColor = new(Color.FromRgb(206, 72, 63));
     private static readonly SolidColorBrush BgColor = new(Color.FromRgb(40, 40, 45));
     private static readonly SolidColorBrush BgLightColor = new(Color.FromRgb(55, 55, 60));
     private const int VkLButton = 0x01;
@@ -265,25 +268,90 @@ public class ReminderPopupWindow : IDisposable
         var closeButton = new Button
         {
             Content = _buttonText,
-            Width = 90,
-            Height = 30,
-            FontSize = 12,
-            FontWeight = FontWeights.Medium,
+            Width = 112,
+            Height = 36,
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Padding = new Thickness(12, 4, 12, 4),
             Cursor = System.Windows.Input.Cursors.Hand,
             Background = TomatoColor,
             Foreground = Brushes.White,
-            BorderThickness = new Thickness(0),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(55, 255, 255, 255)),
+            BorderThickness = new Thickness(1),
+            Template = CreateRoundedButtonTemplate(),
+            RenderTransform = new ScaleTransform(1, 1),
+            RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
+            Effect = new DropShadowEffect
+            {
+                Color = Color.FromRgb(239, 89, 80),
+                BlurRadius = 12,
+                ShadowDepth = 0,
+                Opacity = 0.45
+            },
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
         var defaultBg = TomatoColor;
-        var hoverBg = new SolidColorBrush(Color.FromRgb(255, 110, 100));
-        var pressedBg = new SolidColorBrush(Color.FromRgb(200, 70, 60));
+        var hoverBg = TomatoHoverColor;
+        var pressedBg = TomatoPressedColor;
+        var normalBorder = new SolidColorBrush(Color.FromArgb(55, 255, 255, 255));
+        var hoverBorder = new SolidColorBrush(Color.FromArgb(95, 255, 255, 255));
+        var normalShadow = new DropShadowEffect
+        {
+            Color = Color.FromRgb(239, 89, 80),
+            BlurRadius = 12,
+            ShadowDepth = 0,
+            Opacity = 0.45
+        };
+        var hoverShadow = new DropShadowEffect
+        {
+            Color = Color.FromRgb(255, 114, 103),
+            BlurRadius = 16,
+            ShadowDepth = 0,
+            Opacity = 0.58
+        };
 
-        closeButton.MouseEnter += (s, e) => closeButton.Background = hoverBg;
-        closeButton.MouseLeave += (s, e) => closeButton.Background = defaultBg;
-        closeButton.PreviewMouseDown += (s, e) => closeButton.Background = pressedBg;
-        closeButton.PreviewMouseUp += (s, e) => closeButton.Background = closeButton.IsMouseOver ? hoverBg : defaultBg;
+        closeButton.MouseEnter += (s, e) =>
+        {
+            closeButton.Background = hoverBg;
+            closeButton.BorderBrush = hoverBorder;
+            closeButton.Effect = hoverShadow;
+            if (closeButton.RenderTransform is ScaleTransform scale)
+            {
+                scale.ScaleX = 1.03;
+                scale.ScaleY = 1.03;
+            }
+        };
+        closeButton.MouseLeave += (s, e) =>
+        {
+            closeButton.Background = defaultBg;
+            closeButton.BorderBrush = normalBorder;
+            closeButton.Effect = normalShadow;
+            if (closeButton.RenderTransform is ScaleTransform scale)
+            {
+                scale.ScaleX = 1;
+                scale.ScaleY = 1;
+            }
+        };
+        closeButton.PreviewMouseDown += (s, e) =>
+        {
+            closeButton.Background = pressedBg;
+            if (closeButton.RenderTransform is ScaleTransform scale)
+            {
+                scale.ScaleX = 0.98;
+                scale.ScaleY = 0.98;
+            }
+        };
+        closeButton.PreviewMouseUp += (s, e) =>
+        {
+            closeButton.Background = closeButton.IsMouseOver ? hoverBg : defaultBg;
+            if (closeButton.RenderTransform is ScaleTransform scale)
+            {
+                var target = closeButton.IsMouseOver ? 1.03 : 1;
+                scale.ScaleX = target;
+                scale.ScaleY = target;
+            }
+        };
         closeButton.Click += (s, e) =>
         {
             _onAcknowledge?.Invoke();
@@ -294,6 +362,34 @@ public class ReminderPopupWindow : IDisposable
 
         _rootBorder.Child = stack;
         _popup.Child = _rootBorder;
+    }
+
+    private static ControlTemplate CreateRoundedButtonTemplate()
+    {
+        const string templateXaml = """
+            <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                             TargetType="Button">
+                <Border x:Name="ButtonBorder"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="999"
+                        SnapsToDevicePixels="True">
+                    <ContentPresenter HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      Margin="{TemplateBinding Padding}"
+                                      RecognizesAccessKey="True"/>
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.55"/>
+                    </Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+            """;
+
+        return (ControlTemplate)XamlReader.Parse(templateXaml);
     }
 
     public void Dispose()

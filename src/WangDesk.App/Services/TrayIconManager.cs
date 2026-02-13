@@ -98,8 +98,9 @@ public class TrayIconManager : IDisposable
                 ShowReminderPopup(e.CompletedMode);
             });
         }
-        catch
+        catch (Exception ex)
         {
+            System.Diagnostics.Debug.WriteLine($"[ReminderPopup] Failed to show popup: {ex}");
         }
     }
 
