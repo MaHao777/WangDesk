@@ -98,23 +98,21 @@ public class ReminderPopupWindow : IDisposable
         _isClosing = false;
         ResetOutsideClickState();
 
-        // Use WinForms screen working area (pixel coordinates) to match Popup absolute placement.
-        var workArea = System.Windows.Forms.Screen.PrimaryScreen?.WorkingArea
-                       ?? System.Windows.Forms.SystemInformation.WorkingArea;
-        var popupWidth = _rootBorder?.Width ?? 240;
+        // Use DIP coordinates and absolute offsets for stable bottom-right placement.
+        var workArea = SystemParameters.WorkArea;
+        _rootBorder?.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
 
-        double popupHeight = 140;
-        if (_rootBorder != null)
-        {
-            _rootBorder.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
-            popupHeight = Math.Max(120, _rootBorder.DesiredSize.Height);
-        }
+        var popupWidth = _rootBorder?.DesiredSize.Width > 0 ? _rootBorder.DesiredSize.Width : (_rootBorder?.Width ?? 240);
+        var popupHeight = _rootBorder?.DesiredSize.Height > 0 ? _rootBorder.DesiredSize.Height : 140;
 
-        var x = workArea.Right - popupWidth - rightMargin;
-        var y = workArea.Bottom - popupHeight - bottomMargin;
+        var x = Math.Max(workArea.Left, workArea.Right - popupWidth - rightMargin);
+        var y = Math.Max(workArea.Top, workArea.Bottom - popupHeight - bottomMargin);
 
-        _popup.PlacementRectangle = new Rect(x, y, 0, 0);
+        _popup.Placement = PlacementMode.Absolute;
+        _popup.HorizontalOffset = x;
+        _popup.VerticalOffset = y;
         _popup.IsOpen = true;
+
         _closeTimer?.Start();
         _autoCloseTimer?.Start();
         PlayOpenAnimation();
@@ -402,7 +400,7 @@ public class ReminderPopupWindow : IDisposable
                         Background="{TemplateBinding Background}"
                         BorderBrush="{TemplateBinding BorderBrush}"
                         BorderThickness="{TemplateBinding BorderThickness}"
-                        CornerRadius="999"
+                        CornerRadius="10"
                         SnapsToDevicePixels="True">
                     <ContentPresenter HorizontalAlignment="Center"
                                       VerticalAlignment="Center"
