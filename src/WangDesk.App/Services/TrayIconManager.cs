@@ -95,6 +95,7 @@ public class TrayIconManager : IDisposable
         {
             System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
             {
+                PlayReminderSound();
                 ShowReminderPopup(e.CompletedMode);
             });
         }
@@ -102,6 +103,12 @@ public class TrayIconManager : IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"[ReminderPopup] Failed to show popup: {ex}");
         }
+    }
+
+    private void PlayReminderSound()
+    {
+        var selectedSound = _settingsService.CurrentSettings.ReminderSound;
+        ReminderSoundPlayer.Play(selectedSound);
     }
 
     private void ShowReminderPopup(PomodoroMode completedMode)

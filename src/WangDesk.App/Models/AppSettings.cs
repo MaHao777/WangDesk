@@ -11,6 +11,7 @@ public class AppSettings : INotifyPropertyChanged
     private int _reminderIntervalMinutes = 45;
     private int _breakIntervalMinutes = 5;
     private bool _autoStartEnabled;
+    private ReminderSoundType _reminderSound = ReminderSoundType.Asterisk;
 
     /// <summary>
     /// 提醒间隔（分钟）
@@ -39,6 +40,15 @@ public class AppSettings : INotifyPropertyChanged
         set => SetProperty(ref _autoStartEnabled, value);
     }
 
+    /// <summary>
+    /// 番茄钟提醒音效
+    /// </summary>
+    public ReminderSoundType ReminderSound
+    {
+        get => _reminderSound;
+        set => SetProperty(ref _reminderSound, NormalizeReminderSound(value));
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string propertyName = null!)
@@ -47,5 +57,10 @@ public class AppSettings : INotifyPropertyChanged
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         return true;
+    }
+
+    private static ReminderSoundType NormalizeReminderSound(ReminderSoundType value)
+    {
+        return Enum.IsDefined(typeof(ReminderSoundType), value) ? value : ReminderSoundType.Asterisk;
     }
 }
