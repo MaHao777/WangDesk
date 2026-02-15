@@ -107,8 +107,7 @@ public class TrayIconManager : IDisposable
 
     private void PlayReminderSound()
     {
-        var selectedSound = _settingsService.CurrentSettings.ReminderSound;
-        ReminderSoundPlayer.Play(selectedSound);
+        ReminderSoundPlayer.Play(_settingsService.CurrentSettings);
     }
 
     private void ShowReminderPopup(PomodoroMode completedMode)
@@ -121,6 +120,7 @@ public class TrayIconManager : IDisposable
                 "知道了",
                 () =>
                 {
+                    ReminderSoundPlayer.Stop();
                     _reminderService.StartBreak();
                     _pomodoroPopupWindow?.RefreshDisplay();
                 })
@@ -130,6 +130,7 @@ public class TrayIconManager : IDisposable
                 "开始专注",
                 () =>
                 {
+                    ReminderSoundPlayer.Stop();
                     _reminderService.StartFocus();
                     _pomodoroPopupWindow?.RefreshDisplay();
                 });

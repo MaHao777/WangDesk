@@ -8,10 +8,14 @@ namespace WangDesk.App.Models;
 /// </summary>
 public class AppSettings : INotifyPropertyChanged
 {
+    public const string DefaultReminderSoundSelectionId = "builtin:asterisk";
+
     private int _reminderIntervalMinutes = 45;
     private int _breakIntervalMinutes = 5;
     private bool _autoStartEnabled;
     private ReminderSoundType _reminderSound = ReminderSoundType.Asterisk;
+    private string _reminderSoundSelectionId = DefaultReminderSoundSelectionId;
+    private List<CustomReminderSoundItem> _customReminderSounds = [];
 
     /// <summary>
     /// 提醒间隔（分钟）
@@ -49,6 +53,24 @@ public class AppSettings : INotifyPropertyChanged
         set => SetProperty(ref _reminderSound, NormalizeReminderSound(value));
     }
 
+    /// <summary>
+    /// 当前提醒音效选择（builtin:* 或 custom:*）
+    /// </summary>
+    public string ReminderSoundSelectionId
+    {
+        get => _reminderSoundSelectionId;
+        set => SetProperty(ref _reminderSoundSelectionId, NormalizeReminderSoundSelectionId(value));
+    }
+
+    /// <summary>
+    /// 自定义提醒音效列表
+    /// </summary>
+    public List<CustomReminderSoundItem> CustomReminderSounds
+    {
+        get => _customReminderSounds;
+        set => SetProperty(ref _customReminderSounds, NormalizeCustomReminderSounds(value));
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string propertyName = null!)
@@ -62,5 +84,20 @@ public class AppSettings : INotifyPropertyChanged
     private static ReminderSoundType NormalizeReminderSound(ReminderSoundType value)
     {
         return Enum.IsDefined(typeof(ReminderSoundType), value) ? value : ReminderSoundType.Asterisk;
+    }
+
+    private static string NormalizeReminderSoundSelectionId(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return DefaultReminderSoundSelectionId;
+        }
+
+        return value.Trim();
+    }
+
+    private static List<CustomReminderSoundItem> NormalizeCustomReminderSounds(List<CustomReminderSoundItem>? value)
+    {
+        return value ?? [];
     }
 }

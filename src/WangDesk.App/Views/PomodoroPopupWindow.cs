@@ -1,4 +1,7 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -16,9 +19,12 @@ using ComboBox = System.Windows.Controls.ComboBox;
 using ComboBoxItem = System.Windows.Controls.ComboBoxItem;
 using Cursors = System.Windows.Input.Cursors;
 using HorizontalAlignment = System.Windows.HorizontalAlignment;
+using IoPath = System.IO.Path;
 using Orientation = System.Windows.Controls.Orientation;
+using ShapePath = System.Windows.Shapes.Path;
 using SystemColors = System.Windows.SystemColors;
 using WpfControl = System.Windows.Controls.Control;
+using WpfButton = System.Windows.Controls.Button;
 
 namespace WangDesk.App.Views;
 
@@ -39,12 +45,14 @@ public class PomodoroPopupWindow : IDisposable
     public bool IsOpen => _popup.IsOpen && !_isClosing;
 
     private TextBlock _timeText = null!;
-    private Path _progressPath = null!;
+    private ShapePath _progressPath = null!;
     private Slider _focusIntervalSlider = null!;
     private TextBlock _focusIntervalValueLabel = null!;
     private Slider _breakIntervalSlider = null!;
     private TextBlock _breakIntervalValueLabel = null!;
     private ComboBox _reminderSoundComboBox = null!;
+    private WpfButton _addCustomSoundButton = null!;
+    private WpfButton _removeCustomSoundButton = null!;
     private Border _toggleButtonBorder = null!;
     private TextBlock _toggleButtonText = null!;
     private Grid _mainPanel = null!;
@@ -52,6 +60,7 @@ public class PomodoroPopupWindow : IDisposable
     private Border _openSettingsButton = null!;
     private Border _backButton = null!;
     private TextBlock _headerTitle = null!;
+    private string? _lastValidSoundSelectionId;
 
     private const double CanvasSize = 170;
     private const double RingRadius = 65;
@@ -64,6 +73,15 @@ public class PomodoroPopupWindow : IDisposable
     private static readonly SolidColorBrush BgLightColor = new(System.Windows.Media.Color.FromRgb(55, 55, 60));
     private const int VkLButton = 0x01;
     private const int VkRButton = 0x02;
+
+    private static readonly (string Id, string Label)[] BuiltinSoundOptions =
+    [
+        (ReminderSoundPlayer.BuiltinAsteriskId, "系统提示音"),
+        (ReminderSoundPlayer.BuiltinExclamationId, "提醒音"),
+        (ReminderSoundPlayer.BuiltinBeepId, "蜂鸣音"),
+        (ReminderSoundPlayer.BuiltinHandId, "警示音"),
+        (ReminderSoundPlayer.BuiltinQuestionId, "问询音")
+    ];
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);
@@ -365,7 +383,7 @@ public class PomodoroPopupWindow : IDisposable
 
         AddTicks(canvas);
 
-        _progressPath = new Path
+        _progressPath = new ShapePath
         {
             Stroke = TomatoColor,
             StrokeThickness = RingThickness,
@@ -453,6 +471,7 @@ public class PomodoroPopupWindow : IDisposable
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var focusIntervalPanel = new StackPanel
         {
@@ -531,16 +550,30 @@ public class PomodoroPopupWindow : IDisposable
             FontSize = 13
         };
         _reminderSoundComboBox = CreateStyledComboBox();
-        _reminderSoundComboBox.Items.Add(CreateSoundItem("系统提示音", ReminderSoundType.Asterisk));
-        _reminderSoundComboBox.Items.Add(CreateSoundItem("提醒音", ReminderSoundType.Exclamation));
-        _reminderSoundComboBox.Items.Add(CreateSoundItem("蜂鸣音", ReminderSoundType.Beep));
-        _reminderSoundComboBox.Items.Add(CreateSoundItem("警示音", ReminderSoundType.Hand));
-        _reminderSoundComboBox.Items.Add(CreateSoundItem("问询音", ReminderSoundType.Question));
         _reminderSoundComboBox.SelectionChanged += OnReminderSoundChanged;
         soundPanel.Children.Add(soundLabel);
         soundPanel.Children.Add(_reminderSoundComboBox);
         Grid.SetRow(soundPanel, 2);
         grid.Children.Add(soundPanel);
+
+        var soundActionPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+
+        _addCustomSoundButton = CreateSoundActionButton("添加音频");
+        _addCustomSoundButton.Margin = new Thickness(0, 0, 8, 0);
+        _addCustomSoundButton.Click += OnAddCustomSoundClick;
+        soundActionPanel.Children.Add(_addCustomSoundButton);
+
+        _removeCustomSoundButton = CreateSoundActionButton("删除当前自定义");
+        _removeCustomSoundButton.Click += OnRemoveCurrentCustomSoundClick;
+        soundActionPanel.Children.Add(_removeCustomSoundButton);
+
+        Grid.SetRow(soundActionPanel, 3);
+        grid.Children.Add(soundActionPanel);
 
         var hintText = new TextBlock
         {
@@ -550,7 +583,7 @@ public class PomodoroPopupWindow : IDisposable
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 0, 0, 2)
         };
-        Grid.SetRow(hintText, 3);
+        Grid.SetRow(hintText, 4);
         grid.Children.Add(hintText);
 
         return grid;
@@ -588,6 +621,22 @@ public class PomodoroPopupWindow : IDisposable
         button.MouseLeftButtonUp += (s, e) => onClick();
 
         return button;
+    }
+
+    private static WpfButton CreateSoundActionButton(string text)
+    {
+        return new WpfButton
+        {
+            Content = text,
+            Height = 28,
+            MinWidth = 96,
+            Padding = new Thickness(12, 2, 12, 2),
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(68, 68, 76)),
+            Foreground = Brushes.White,
+            BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(90, 90, 100)),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand
+        };
     }
 
     private static ComboBox CreateStyledComboBox()
@@ -835,8 +884,8 @@ public class PomodoroPopupWindow : IDisposable
         _breakIntervalSlider.Value = settings.BreakIntervalMinutes;
         _focusIntervalValueLabel.Text = $"{settings.ReminderIntervalMinutes} 分钟";
         _breakIntervalValueLabel.Text = $"{settings.BreakIntervalMinutes} 分钟";
-        SelectReminderSound(settings.ReminderSound);
         _isLoadingSettings = false;
+        RefreshReminderSoundItems(settings.ReminderSoundSelectionId);
     }
 
     private void OnFocusIntervalChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -873,42 +922,279 @@ public class PomodoroPopupWindow : IDisposable
         UpdateDisplay();
     }
 
-    private static ComboBoxItem CreateSoundItem(string label, ReminderSoundType soundType)
+    private static ComboBoxItem CreateSoundItem(string label, string selectionId)
     {
         return new ComboBoxItem
         {
             Content = label,
-            Tag = soundType
+            Tag = selectionId
         };
     }
 
-    private void SelectReminderSound(ReminderSoundType soundType)
+    private static ComboBoxItem CreateSoundSeparatorItem()
     {
-        foreach (var item in _reminderSoundComboBox.Items)
+        return new ComboBoxItem
         {
-            if (item is ComboBoxItem comboItem && comboItem.Tag is ReminderSoundType itemSound && itemSound == soundType)
+            Content = "────────",
+            IsEnabled = false,
+            Focusable = false,
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(120, 120, 126))
+        };
+    }
+
+    private void RefreshReminderSoundItems(string? preferredSelectionId = null)
+    {
+        var settings = _settingsService.CurrentSettings;
+        var targetSelectionId = string.IsNullOrWhiteSpace(preferredSelectionId)
+            ? settings.ReminderSoundSelectionId
+            : preferredSelectionId;
+
+        _isLoadingSettings = true;
+        _reminderSoundComboBox.Items.Clear();
+
+        foreach (var (id, label) in BuiltinSoundOptions)
+        {
+            _reminderSoundComboBox.Items.Add(CreateSoundItem(label, id));
+        }
+
+        if (settings.CustomReminderSounds.Count > 0)
+        {
+            _reminderSoundComboBox.Items.Add(CreateSoundSeparatorItem());
+            foreach (var customItem in settings.CustomReminderSounds.OrderBy(item => item.AddedAtUtc))
             {
-                _reminderSoundComboBox.SelectedItem = comboItem;
-                return;
+                _reminderSoundComboBox.Items.Add(CreateSoundItem(customItem.DisplayName, customItem.Id));
             }
         }
 
-        _reminderSoundComboBox.SelectedIndex = 0;
+        if (!SelectReminderSound(targetSelectionId))
+        {
+            SelectReminderSound(ReminderSoundPlayer.BuiltinAsteriskId);
+            settings.ReminderSoundSelectionId = ReminderSoundPlayer.BuiltinAsteriskId;
+            settings.ReminderSound = ReminderSoundType.Asterisk;
+            _settingsService.SaveSettings();
+        }
+
+        _isLoadingSettings = false;
+        UpdateCustomSoundButtonsState();
+    }
+
+    private bool SelectReminderSound(string? selectionId)
+    {
+        if (string.IsNullOrWhiteSpace(selectionId))
+        {
+            return false;
+        }
+
+        foreach (var item in _reminderSoundComboBox.Items)
+        {
+            if (item is ComboBoxItem comboItem &&
+                comboItem.Tag is string itemId &&
+                string.Equals(itemId, selectionId, StringComparison.OrdinalIgnoreCase))
+            {
+                _reminderSoundComboBox.SelectedItem = comboItem;
+                _lastValidSoundSelectionId = itemId;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void OnReminderSoundChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_isLoadingSettings ||
-            _reminderSoundComboBox.SelectedItem is not ComboBoxItem selectedItem ||
-            selectedItem.Tag is not ReminderSoundType selectedSound)
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        if (_reminderSoundComboBox.SelectedItem is not ComboBoxItem selectedItem ||
+            selectedItem.Tag is not string selectedSelectionId)
+        {
+            _isLoadingSettings = true;
+            SelectReminderSound(_lastValidSoundSelectionId ?? ReminderSoundPlayer.BuiltinAsteriskId);
+            _isLoadingSettings = false;
+            return;
+        }
+
+        var settings = _settingsService.CurrentSettings;
+        settings.ReminderSoundSelectionId = selectedSelectionId;
+        settings.ReminderSound = ReminderSoundPlayer.MapSelectionIdToLegacySound(selectedSelectionId);
+        _lastValidSoundSelectionId = selectedSelectionId;
+        _settingsService.SaveSettings();
+        UpdateCustomSoundButtonsState();
+        ReminderSoundPlayer.Play(settings);
+    }
+
+    private void UpdateCustomSoundButtonsState()
+    {
+        if (_removeCustomSoundButton == null || _reminderSoundComboBox.SelectedItem is not ComboBoxItem selectedItem)
+        {
+            return;
+        }
+
+        var isCustom = selectedItem.Tag is string selectionId &&
+                       selectionId.StartsWith("custom:", StringComparison.OrdinalIgnoreCase);
+        _removeCustomSoundButton.IsEnabled = isCustom;
+        _removeCustomSoundButton.Opacity = isCustom ? 1 : 0.55;
+    }
+
+    private void OnAddCustomSoundClick(object sender, RoutedEventArgs e)
+    {
+        var openFileDialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择提醒音频",
+            Filter = "WAV 文件 (*.wav)|*.wav",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (openFileDialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        if (!string.Equals(IoPath.GetExtension(openFileDialog.FileName), ".wav", StringComparison.OrdinalIgnoreCase))
+        {
+            System.Windows.MessageBox.Show(
+                "仅支持 WAV 格式音频。",
+                "添加音频",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var settings = _settingsService.CurrentSettings;
+        try
+        {
+            var soundsDirectory = ReminderSoundPlayer.GetSoundsDirectory();
+            Directory.CreateDirectory(soundsDirectory);
+
+            var fileId = Guid.NewGuid().ToString("N");
+            var originalName = IoPath.GetFileNameWithoutExtension(openFileDialog.FileName);
+            var safeName = SanitizeFileName(originalName);
+            if (string.IsNullOrWhiteSpace(safeName))
+            {
+                safeName = "sound";
+            }
+
+            var targetFileName = $"{fileId}_{safeName}.wav";
+            var targetPath = IoPath.Combine(soundsDirectory, targetFileName);
+            File.Copy(openFileDialog.FileName, targetPath, overwrite: false);
+
+            var customItem = new CustomReminderSoundItem
+            {
+                Id = $"custom:{fileId}",
+                DisplayName = originalName,
+                FileName = targetFileName,
+                AddedAtUtc = DateTime.UtcNow
+            };
+
+            settings.CustomReminderSounds.Add(customItem);
+            settings.ReminderSoundSelectionId = customItem.Id;
+            settings.ReminderSound = ReminderSoundPlayer.MapSelectionIdToLegacySound(customItem.Id);
+            _settingsService.SaveSettings();
+
+            RefreshReminderSoundItems(customItem.Id);
+            ReminderSoundPlayer.Play(settings);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ReminderSound] Failed to add custom sound: {ex}");
+            System.Windows.MessageBox.Show(
+                "添加音频失败，请重试。",
+                "添加音频",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private void OnRemoveCurrentCustomSoundClick(object sender, RoutedEventArgs e)
+    {
+        if (_reminderSoundComboBox.SelectedItem is not ComboBoxItem selectedItem ||
+            selectedItem.Tag is not string selectionId ||
+            !selectionId.StartsWith("custom:", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
         var settings = _settingsService.CurrentSettings;
-        settings.ReminderSound = selectedSound;
+        var customItem = settings.CustomReminderSounds
+            .FirstOrDefault(item => string.Equals(item.Id, selectionId, StringComparison.OrdinalIgnoreCase));
+        if (customItem == null)
+        {
+            settings.ReminderSoundSelectionId = ReminderSoundPlayer.BuiltinAsteriskId;
+            settings.ReminderSound = ReminderSoundType.Asterisk;
+            _settingsService.SaveSettings();
+            RefreshReminderSoundItems(ReminderSoundPlayer.BuiltinAsteriskId);
+            return;
+        }
+
+        var confirm = System.Windows.MessageBox.Show(
+            $"确定删除音频“{customItem.DisplayName}”吗？",
+            "删除音频",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirm != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        settings.CustomReminderSounds.Remove(customItem);
+        settings.ReminderSoundSelectionId = ReminderSoundPlayer.BuiltinAsteriskId;
+        settings.ReminderSound = ReminderSoundType.Asterisk;
         _settingsService.SaveSettings();
-        ReminderSoundPlayer.Play(selectedSound);
+
+        TryDeleteCustomSoundFile(customItem.FileName);
+        RefreshReminderSoundItems(ReminderSoundPlayer.BuiltinAsteriskId);
+        ReminderSoundPlayer.Play(settings);
+    }
+
+    private static void TryDeleteCustomSoundFile(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return;
+        }
+
+        try
+        {
+            var filePath = IoPath.Combine(ReminderSoundPlayer.GetSoundsDirectory(), fileName);
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ReminderSound] Failed to delete custom sound file: {ex}");
+        }
+    }
+
+    private static string SanitizeFileName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return string.Empty;
+        }
+
+        var invalidChars = IoPath.GetInvalidFileNameChars();
+        var buffer = new StringBuilder(fileName.Length);
+        foreach (var ch in fileName.Trim())
+        {
+            if (Array.IndexOf(invalidChars, ch) < 0)
+            {
+                buffer.Append(ch);
+            }
+        }
+
+        var sanitized = buffer.ToString();
+        if (sanitized.Length > 40)
+        {
+            sanitized = sanitized[..40];
+        }
+
+        return sanitized;
     }
 
     private void OnToggleClick()
@@ -919,6 +1205,7 @@ public class PomodoroPopupWindow : IDisposable
         }
         else
         {
+            ReminderSoundPlayer.Stop();
             if (_reminderService.CurrentMode == PomodoroMode.Break)
             {
                 _reminderService.StartBreak();
@@ -1065,5 +1352,7 @@ public class PomodoroPopupWindow : IDisposable
         _popup.IsOpen = false;
     }
 }
+
+
 
 
