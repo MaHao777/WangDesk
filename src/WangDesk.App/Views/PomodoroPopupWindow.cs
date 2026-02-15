@@ -1,4 +1,8 @@
-﻿using System.Windows;
+﻿using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -7,13 +11,20 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using System.Runtime.InteropServices;
+using WangDesk.App.Models;
 using WangDesk.App.Services;
 
-using Button = System.Windows.Controls.Button;
-using Orientation = System.Windows.Controls.Orientation;
+using Brushes = System.Windows.Media.Brushes;
+using ComboBox = System.Windows.Controls.ComboBox;
+using ComboBoxItem = System.Windows.Controls.ComboBoxItem;
+using Cursors = System.Windows.Input.Cursors;
 using HorizontalAlignment = System.Windows.HorizontalAlignment;
-using MouseEventArgs = System.Windows.Input.MouseEventArgs;
+using IoPath = System.IO.Path;
+using Orientation = System.Windows.Controls.Orientation;
+using ShapePath = System.Windows.Shapes.Path;
+using SystemColors = System.Windows.SystemColors;
+using WpfControl = System.Windows.Controls.Control;
+using WpfButton = System.Windows.Controls.Button;
 
 namespace WangDesk.App.Views;
 
@@ -27,18 +38,29 @@ public class PomodoroPopupWindow : IDisposable
     private Border? _rootBorder;
     private bool _mouseHasEntered;
     private bool _isClosing;
+    private bool _isLoadingSettings;
+    private bool _isSettingsView;
+    private DateTime _suppressAutoCloseUntil = DateTime.MinValue;
 
     public bool IsOpen => _popup.IsOpen && !_isClosing;
 
     private TextBlock _timeText = null!;
-    private TextBlock _statusText = null!;
-    private Path _progressPath = null!;
+    private ShapePath _progressPath = null!;
     private Slider _focusIntervalSlider = null!;
     private TextBlock _focusIntervalValueLabel = null!;
     private Slider _breakIntervalSlider = null!;
     private TextBlock _breakIntervalValueLabel = null!;
+    private ComboBox _reminderSoundComboBox = null!;
+    private WpfButton _addCustomSoundButton = null!;
+    private WpfButton _removeCustomSoundButton = null!;
     private Border _toggleButtonBorder = null!;
     private TextBlock _toggleButtonText = null!;
+    private Grid _mainPanel = null!;
+    private Grid _settingsPanel = null!;
+    private Border _openSettingsButton = null!;
+    private Border _backButton = null!;
+    private TextBlock _headerTitle = null!;
+    private string? _lastValidSoundSelectionId;
 
     private const double CanvasSize = 170;
     private const double RingRadius = 65;
@@ -46,10 +68,20 @@ public class PomodoroPopupWindow : IDisposable
 
     private static readonly SolidColorBrush TomatoColor = new(System.Windows.Media.Color.FromRgb(239, 89, 80));
     private static readonly SolidColorBrush TomatoDarkColor = new(System.Windows.Media.Color.FromRgb(200, 70, 60));
+    private static readonly SolidColorBrush BreakColor = new(System.Windows.Media.Color.FromRgb(112, 196, 144));
     private static readonly SolidColorBrush BgColor = new(System.Windows.Media.Color.FromRgb(40, 40, 45));
     private static readonly SolidColorBrush BgLightColor = new(System.Windows.Media.Color.FromRgb(55, 55, 60));
     private const int VkLButton = 0x01;
     private const int VkRButton = 0x02;
+
+    private static readonly (string Id, string Label)[] BuiltinSoundOptions =
+    [
+        (ReminderSoundPlayer.BuiltinAsteriskId, "系统提示音"),
+        (ReminderSoundPlayer.BuiltinExclamationId, "提醒音"),
+        (ReminderSoundPlayer.BuiltinBeepId, "蜂鸣音"),
+        (ReminderSoundPlayer.BuiltinHandId, "警示音"),
+        (ReminderSoundPlayer.BuiltinQuestionId, "问询音")
+    ];
 
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int vKey);
@@ -64,13 +96,13 @@ public class PomodoroPopupWindow : IDisposable
             Placement = PlacementMode.AbsolutePoint,
             StaysOpen = true
         };
-        
+
         InitializeComponent();
         LoadSettings();
         UpdateDisplay();
         StartUiTimer();
         StartCloseTimer();
-        
+
         _popup.Closed += OnPopupClosed;
     }
 
@@ -84,7 +116,11 @@ public class PomodoroPopupWindow : IDisposable
     {
         _mouseHasEntered = false;
         _isClosing = false;
+        _isSettingsView = false;
+        UpdateViewVisibility();
+        LoadSettings();
         ResetOutsideClickState();
+        StartAutoCloseGracePeriod();
         _popup.PlacementRectangle = new Rect(
             screenPoint.X - 140,
             screenPoint.Y - 10,
@@ -166,6 +202,7 @@ public class PomodoroPopupWindow : IDisposable
     private void CheckMousePosition()
     {
         if (!_popup.IsOpen || _rootBorder == null) return;
+        if (DateTime.Now < _suppressAutoCloseUntil) return;
 
         var mousePos = Mouse.GetPosition(_rootBorder);
         var width = _rootBorder.ActualWidth;
@@ -196,6 +233,11 @@ public class PomodoroPopupWindow : IDisposable
         _ = GetAsyncKeyState(VkRButton);
     }
 
+    private void StartAutoCloseGracePeriod()
+    {
+        _suppressAutoCloseUntil = DateTime.Now.AddMilliseconds(450);
+    }
+
     private void InitializeComponent()
     {
         _rootBorder = new Border
@@ -215,9 +257,74 @@ public class PomodoroPopupWindow : IDisposable
             }
         };
 
+        var rootGrid = new Grid();
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var headerGrid = new Grid
+        {
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        _backButton = CreateIconButton("←", () =>
+        {
+            _isSettingsView = false;
+            _mouseHasEntered = false;
+            ResetOutsideClickState();
+            StartAutoCloseGracePeriod();
+            UpdateViewVisibility();
+        });
+        _backButton.Visibility = Visibility.Collapsed;
+        Grid.SetColumn(_backButton, 0);
+        headerGrid.Children.Add(_backButton);
+
+        _headerTitle = new TextBlock
+        {
+            Text = "番茄设置",
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(190, 190, 195)),
+            FontSize = 13,
+            FontWeight = FontWeights.Medium,
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Visibility = Visibility.Collapsed
+        };
+        Grid.SetColumn(_headerTitle, 1);
+        headerGrid.Children.Add(_headerTitle);
+
+        _openSettingsButton = CreateIconButton("⚙", () =>
+        {
+            _isSettingsView = true;
+            _mouseHasEntered = false;
+            ResetOutsideClickState();
+            StartAutoCloseGracePeriod();
+            LoadSettings();
+            UpdateViewVisibility();
+        });
+        Grid.SetColumn(_openSettingsButton, 2);
+        headerGrid.Children.Add(_openSettingsButton);
+
+        Grid.SetRow(headerGrid, 0);
+        rootGrid.Children.Add(headerGrid);
+
+        _mainPanel = BuildMainPanel();
+        Grid.SetRow(_mainPanel, 1);
+        rootGrid.Children.Add(_mainPanel);
+
+        _settingsPanel = BuildSettingsPanel();
+        Grid.SetRow(_settingsPanel, 1);
+        rootGrid.Children.Add(_settingsPanel);
+
+        _rootBorder.Child = rootGrid;
+        _popup.Child = _rootBorder;
+        UpdateViewVisibility();
+    }
+
+    private Grid BuildMainPanel()
+    {
         var grid = new Grid();
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -225,7 +332,7 @@ public class PomodoroPopupWindow : IDisposable
         {
             Width = CanvasSize,
             Height = CanvasSize,
-            Margin = new Thickness(0, 8, 0, 16),
+            Margin = new Thickness(0, 4, 0, 16),
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
@@ -256,7 +363,7 @@ public class PomodoroPopupWindow : IDisposable
             Height = (RingRadius + 12) * 2,
             Stroke = BgLightColor,
             StrokeThickness = 1,
-            Fill = System.Windows.Media.Brushes.Transparent
+            Fill = Brushes.Transparent
         };
         Canvas.SetLeft(outerRing, center - RingRadius - 12);
         Canvas.SetTop(outerRing, center - RingRadius - 12);
@@ -268,7 +375,7 @@ public class PomodoroPopupWindow : IDisposable
             Height = RingRadius * 2,
             Stroke = new SolidColorBrush(System.Windows.Media.Color.FromRgb(60, 60, 65)),
             StrokeThickness = RingThickness,
-            Fill = System.Windows.Media.Brushes.Transparent
+            Fill = Brushes.Transparent
         };
         Canvas.SetLeft(backgroundRing, center - RingRadius);
         Canvas.SetTop(backgroundRing, center - RingRadius);
@@ -276,7 +383,7 @@ public class PomodoroPopupWindow : IDisposable
 
         AddTicks(canvas);
 
-        _progressPath = new Path
+        _progressPath = new ShapePath
         {
             Stroke = TomatoColor,
             StrokeThickness = RingThickness,
@@ -285,93 +392,19 @@ public class PomodoroPopupWindow : IDisposable
         };
         canvas.Children.Add(_progressPath);
 
-        _statusText = new TextBlock
-        {
-            Foreground = TomatoColor,
-            FontSize = 12,
-            FontWeight = FontWeights.Medium,
-            Text = "🍅 专注中",
-            Width = CanvasSize,
-            TextAlignment = TextAlignment.Center
-        };
-        Canvas.SetTop(_statusText, center - 30);
-        canvas.Children.Add(_statusText);
-
         _timeText = new TextBlock
         {
-            Foreground = System.Windows.Media.Brushes.White,
+            Foreground = Brushes.White,
             FontSize = 36,
             FontWeight = FontWeights.Bold,
             Width = CanvasSize,
             TextAlignment = TextAlignment.Center
         };
-        Canvas.SetTop(_timeText, center - 12);
+        Canvas.SetTop(_timeText, center - 18);
         canvas.Children.Add(_timeText);
 
         Grid.SetRow(canvas, 0);
         grid.Children.Add(canvas);
-
-        var focusIntervalPanel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 10),
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-        var focusIntervalLabel = new TextBlock
-        {
-            Text = "专注时长",
-            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 180, 180)),
-            Width = 72,
-            VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 13
-        };
-        _focusIntervalSlider = CreateStyledSlider();
-        _focusIntervalValueLabel = new TextBlock
-        {
-            Foreground = System.Windows.Media.Brushes.White,
-            Width = 44,
-            Margin = new Thickness(4, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 13,
-            FontWeight = FontWeights.Medium
-        };
-        _focusIntervalSlider.ValueChanged += OnFocusIntervalChanged;
-        focusIntervalPanel.Children.Add(focusIntervalLabel);
-        focusIntervalPanel.Children.Add(_focusIntervalSlider);
-        focusIntervalPanel.Children.Add(_focusIntervalValueLabel);
-        Grid.SetRow(focusIntervalPanel, 1);
-        grid.Children.Add(focusIntervalPanel);
-
-        var breakIntervalPanel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(0, 0, 0, 16),
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-        var breakIntervalLabel = new TextBlock
-        {
-            Text = "休息时长",
-            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 180, 180)),
-            Width = 72,
-            VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 13
-        };
-        _breakIntervalSlider = CreateStyledSlider();
-        _breakIntervalValueLabel = new TextBlock
-        {
-            Foreground = System.Windows.Media.Brushes.White,
-            Width = 44,
-            Margin = new Thickness(4, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 13,
-            FontWeight = FontWeights.Medium
-        };
-        _breakIntervalSlider.ValueChanged += OnBreakIntervalChanged;
-        breakIntervalPanel.Children.Add(breakIntervalLabel);
-        breakIntervalPanel.Children.Add(_breakIntervalSlider);
-        breakIntervalPanel.Children.Add(_breakIntervalValueLabel);
-        Grid.SetRow(breakIntervalPanel, 2);
-        grid.Children.Add(breakIntervalPanel);
 
         var buttonPanel = new StackPanel
         {
@@ -379,11 +412,10 @@ public class PomodoroPopupWindow : IDisposable
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
-        // 鍦嗚鑳跺泭鍒囨崲鎸夐挳
         _toggleButtonText = new TextBlock
         {
-            Text = "▶ 开始专注",
-            Foreground = System.Windows.Media.Brushes.White,
+            Text = "开始专注",
+            Foreground = Brushes.White,
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
             HorizontalAlignment = HorizontalAlignment.Center,
@@ -396,7 +428,7 @@ public class PomodoroPopupWindow : IDisposable
             Height = 40,
             CornerRadius = new CornerRadius(20),
             Background = TomatoColor,
-            Cursor = System.Windows.Input.Cursors.Hand,
+            Cursor = Cursors.Hand,
             Child = _toggleButtonText,
             Effect = new DropShadowEffect
             {
@@ -410,29 +442,339 @@ public class PomodoroPopupWindow : IDisposable
         _toggleButtonBorder.MouseEnter += (s, e) =>
         {
             var isRunning = _reminderService.IsRunning;
-            _toggleButtonBorder.Background = isRunning
-                ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(160, 80, 80))
-                : new SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 110, 100));
+            var isBreakMode = _reminderService.CurrentMode == PomodoroMode.Break;
+            _toggleButtonBorder.Background = CreateBrush(GetButtonHoverColor(isRunning, isBreakMode));
         };
         _toggleButtonBorder.MouseLeave += (s, e) => UpdateToggleButtonStyle();
         _toggleButtonBorder.MouseLeftButtonDown += (s, e) =>
         {
             var isRunning = _reminderService.IsRunning;
-            _toggleButtonBorder.Background = isRunning
-                ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(120, 55, 55))
-                : TomatoDarkColor;
+            var isBreakMode = _reminderService.CurrentMode == PomodoroMode.Break;
+            _toggleButtonBorder.Background = CreateBrush(GetButtonPressedColor(isRunning, isBreakMode));
         };
-        _toggleButtonBorder.MouseLeftButtonUp += (s, e) =>
-        {
-            OnToggleClick();
-        };
+        _toggleButtonBorder.MouseLeftButtonUp += (s, e) => OnToggleClick();
 
         buttonPanel.Children.Add(_toggleButtonBorder);
-        Grid.SetRow(buttonPanel, 3);
+        Grid.SetRow(buttonPanel, 1);
         grid.Children.Add(buttonPanel);
 
-        _rootBorder.Child = grid;
-        _popup.Child = _rootBorder;
+        return grid;
+    }
+
+    private Grid BuildSettingsPanel()
+    {
+        var grid = new Grid
+        {
+            Visibility = Visibility.Collapsed
+        };
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var focusIntervalPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 8, 0, 10),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        var focusIntervalLabel = new TextBlock
+        {
+            Text = "专注时长",
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 180, 180)),
+            Width = 72,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13
+        };
+        _focusIntervalSlider = CreateStyledSlider();
+        _focusIntervalValueLabel = new TextBlock
+        {
+            Foreground = Brushes.White,
+            Width = 44,
+            Margin = new Thickness(4, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13,
+            FontWeight = FontWeights.Medium
+        };
+        _focusIntervalSlider.ValueChanged += OnFocusIntervalChanged;
+        focusIntervalPanel.Children.Add(focusIntervalLabel);
+        focusIntervalPanel.Children.Add(_focusIntervalSlider);
+        focusIntervalPanel.Children.Add(_focusIntervalValueLabel);
+        Grid.SetRow(focusIntervalPanel, 0);
+        grid.Children.Add(focusIntervalPanel);
+
+        var breakIntervalPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 10),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        var breakIntervalLabel = new TextBlock
+        {
+            Text = "休息时长",
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 180, 180)),
+            Width = 72,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13
+        };
+        _breakIntervalSlider = CreateStyledSlider();
+        _breakIntervalValueLabel = new TextBlock
+        {
+            Foreground = Brushes.White,
+            Width = 44,
+            Margin = new Thickness(4, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13,
+            FontWeight = FontWeights.Medium
+        };
+        _breakIntervalSlider.ValueChanged += OnBreakIntervalChanged;
+        breakIntervalPanel.Children.Add(breakIntervalLabel);
+        breakIntervalPanel.Children.Add(_breakIntervalSlider);
+        breakIntervalPanel.Children.Add(_breakIntervalValueLabel);
+        Grid.SetRow(breakIntervalPanel, 1);
+        grid.Children.Add(breakIntervalPanel);
+
+        var soundPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 12),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        var soundLabel = new TextBlock
+        {
+            Text = "提醒音效",
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(180, 180, 180)),
+            Width = 72,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 13
+        };
+        _reminderSoundComboBox = CreateStyledComboBox();
+        _reminderSoundComboBox.SelectionChanged += OnReminderSoundChanged;
+        soundPanel.Children.Add(soundLabel);
+        soundPanel.Children.Add(_reminderSoundComboBox);
+        Grid.SetRow(soundPanel, 2);
+        grid.Children.Add(soundPanel);
+
+        var soundActionPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 10)
+        };
+
+        _addCustomSoundButton = CreateSoundActionButton("添加音频");
+        _addCustomSoundButton.Margin = new Thickness(0, 0, 8, 0);
+        _addCustomSoundButton.Click += OnAddCustomSoundClick;
+        soundActionPanel.Children.Add(_addCustomSoundButton);
+
+        _removeCustomSoundButton = CreateSoundActionButton("删除当前自定义");
+        _removeCustomSoundButton.Click += OnRemoveCurrentCustomSoundClick;
+        soundActionPanel.Children.Add(_removeCustomSoundButton);
+
+        Grid.SetRow(soundActionPanel, 3);
+        grid.Children.Add(soundActionPanel);
+
+        var hintText = new TextBlock
+        {
+            Text = "计时进行中不可修改时长",
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(130, 130, 135)),
+            FontSize = 11,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 2)
+        };
+        Grid.SetRow(hintText, 4);
+        grid.Children.Add(hintText);
+
+        return grid;
+    }
+
+    private static Border CreateIconButton(string icon, Action onClick)
+    {
+        var text = new TextBlock
+        {
+            Text = icon,
+            Foreground = Brushes.White,
+            FontSize = 15,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var button = new Border
+        {
+            Width = 28,
+            Height = 28,
+            CornerRadius = new CornerRadius(14),
+            Background = Brushes.Transparent,
+            Cursor = Cursors.Hand,
+            Child = text
+        };
+
+        button.MouseEnter += (s, e) =>
+        {
+            button.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(62, 62, 70));
+        };
+        button.MouseLeave += (s, e) =>
+        {
+            button.Background = Brushes.Transparent;
+        };
+        button.MouseLeftButtonUp += (s, e) => onClick();
+
+        return button;
+    }
+
+    private static WpfButton CreateSoundActionButton(string text)
+    {
+        return new WpfButton
+        {
+            Content = text,
+            Height = 28,
+            MinWidth = 96,
+            Padding = new Thickness(12, 2, 12, 2),
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(68, 68, 76)),
+            Foreground = Brushes.White,
+            BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(90, 90, 100)),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand
+        };
+    }
+
+    private static ComboBox CreateStyledComboBox()
+    {
+        var combo = new ComboBox
+        {
+            Width = 160,
+            Height = 28,
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(235, 235, 240)),
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(65, 65, 74)),
+            BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(90, 90, 100)),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(6, 2, 6, 2),
+            FontSize = 12,
+            MaxDropDownHeight = 220,
+            IsEditable = false
+        };
+
+        // 瑕嗙洊绯荤粺榛樿涓嬫媺鑹诧紝閬垮厤鐧藉簳鐧藉瓧骞朵繚鎸佹繁鑹查鏍笺€?        combo.Resources[SystemColors.WindowBrushKey] = new SolidColorBrush(System.Windows.Media.Color.FromRgb(58, 58, 66));
+        combo.Resources[SystemColors.ControlBrushKey] = new SolidColorBrush(System.Windows.Media.Color.FromRgb(58, 58, 66));
+        combo.Resources[SystemColors.WindowTextBrushKey] = new SolidColorBrush(System.Windows.Media.Color.FromRgb(235, 235, 240));
+        combo.Resources[SystemColors.HighlightBrushKey] = new SolidColorBrush(System.Windows.Media.Color.FromRgb(239, 89, 80));
+        combo.Resources[SystemColors.HighlightTextBrushKey] = Brushes.White;
+
+        var itemStyle = new Style(typeof(ComboBoxItem));
+        itemStyle.Setters.Add(new Setter(WpfControl.ForegroundProperty, new SolidColorBrush(System.Windows.Media.Color.FromRgb(235, 235, 240))));
+        itemStyle.Setters.Add(new Setter(WpfControl.BackgroundProperty, Brushes.Transparent));
+        itemStyle.Setters.Add(new Setter(WpfControl.BorderThicknessProperty, new Thickness(0)));
+        itemStyle.Setters.Add(new Setter(WpfControl.PaddingProperty, new Thickness(8, 5, 8, 5)));
+        itemStyle.Setters.Add(new Setter(WpfControl.HorizontalContentAlignmentProperty, HorizontalAlignment.Left));
+        itemStyle.Setters.Add(new Setter(WpfControl.VerticalContentAlignmentProperty, VerticalAlignment.Center));
+
+        var highlightedTrigger = new Trigger
+        {
+            Property = ComboBoxItem.IsHighlightedProperty,
+            Value = true
+        };
+        highlightedTrigger.Setters.Add(new Setter(WpfControl.BackgroundProperty, new SolidColorBrush(System.Windows.Media.Color.FromRgb(80, 80, 90))));
+        itemStyle.Triggers.Add(highlightedTrigger);
+
+        var selectedTrigger = new Trigger
+        {
+            Property = ComboBoxItem.IsSelectedProperty,
+            Value = true
+        };
+        selectedTrigger.Setters.Add(new Setter(WpfControl.BackgroundProperty, new SolidColorBrush(System.Windows.Media.Color.FromRgb(239, 89, 80))));
+        selectedTrigger.Setters.Add(new Setter(WpfControl.ForegroundProperty, Brushes.White));
+        itemStyle.Triggers.Add(selectedTrigger);
+
+        combo.ItemContainerStyle = itemStyle;
+        var templateXaml = """
+<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+                 xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
+                 TargetType='ComboBox'>
+    <Grid SnapsToDevicePixels='True'>
+        <Border x:Name='MainBorder'
+                CornerRadius='8'
+                Background='{TemplateBinding Background}'
+                BorderBrush='{TemplateBinding BorderBrush}'
+                BorderThickness='{TemplateBinding BorderThickness}'/>
+
+        <ContentPresenter x:Name='ContentSite'
+                          Margin='10,0,30,0'
+                          VerticalAlignment='Center'
+                          HorizontalAlignment='Left'
+                          IsHitTestVisible='False'
+                          Content='{TemplateBinding SelectionBoxItem}'
+                          ContentTemplate='{TemplateBinding SelectionBoxItemTemplate}'
+                          ContentTemplateSelector='{TemplateBinding ItemTemplateSelector}'
+                          TextElement.Foreground='{TemplateBinding Foreground}' />
+
+        <Path x:Name='Arrow'
+              Width='10'
+              Height='6'
+              Margin='0,0,10,0'
+              HorizontalAlignment='Right'
+              VerticalAlignment='Center'
+              Fill='#D7D7DB'
+              Data='M 0 0 L 5 6 L 10 0 Z' />
+
+        <ToggleButton x:Name='ToggleButton'
+                      Background='Transparent'
+                      BorderThickness='0'
+                      Focusable='False'
+                      ClickMode='Press'
+                      IsChecked='{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}'>
+            <ToggleButton.Template>
+                <ControlTemplate TargetType='ToggleButton'>
+                    <Border Background='Transparent'/>
+                </ControlTemplate>
+            </ToggleButton.Template>
+        </ToggleButton>
+
+        <Popup x:Name='Popup'
+               Placement='Bottom'
+               IsOpen='{TemplateBinding IsDropDownOpen}'
+               Focusable='False'
+               AllowsTransparency='True'
+               PopupAnimation='Fade'>
+            <Border Margin='0,4,0,0'
+                    CornerRadius='8'
+                    BorderThickness='1'
+                    Background='#3A3A42'
+                    BorderBrush='#5A5A64'>
+                <ScrollViewer Margin='4' SnapsToDevicePixels='True'>
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation='Contained'/>
+                </ScrollViewer>
+            </Border>
+        </Popup>
+    </Grid>
+    <ControlTemplate.Triggers>
+        <Trigger Property='IsMouseOver' Value='True'>
+            <Setter TargetName='MainBorder' Property='BorderBrush' Value='#EF5950'/>
+        </Trigger>
+        <Trigger Property='IsKeyboardFocusWithin' Value='True'>
+            <Setter TargetName='MainBorder' Property='BorderBrush' Value='#EF5950'/>
+        </Trigger>
+        <Trigger Property='IsDropDownOpen' Value='True'>
+            <Setter TargetName='MainBorder' Property='BorderBrush' Value='#EF5950'/>
+            <Setter TargetName='Arrow' Property='Fill' Value='#EF5950'/>
+        </Trigger>
+        <Trigger Property='IsEnabled' Value='False'>
+            <Setter Property='Opacity' Value='0.55'/>
+        </Trigger>
+    </ControlTemplate.Triggers>
+</ControlTemplate>
+""";
+        combo.Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(templateXaml);
+        return combo;
+    }
+
+    private void UpdateViewVisibility()
+    {
+        _mainPanel.Visibility = _isSettingsView ? Visibility.Collapsed : Visibility.Visible;
+        _settingsPanel.Visibility = _isSettingsView ? Visibility.Visible : Visibility.Collapsed;
+        _openSettingsButton.Visibility = _isSettingsView ? Visibility.Collapsed : Visibility.Visible;
+        _backButton.Visibility = _isSettingsView ? Visibility.Visible : Visibility.Collapsed;
+        _headerTitle.Visibility = _isSettingsView ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private Slider CreateStyledSlider()
@@ -516,7 +858,7 @@ public class PomodoroPopupWindow : IDisposable
                 Y1 = y1,
                 X2 = x2,
                 Y2 = y2,
-                Stroke = i % 5 == 0 
+                Stroke = i % 5 == 0
                     ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(120, 120, 125))
                     : new SolidColorBrush(System.Windows.Media.Color.FromRgb(75, 75, 80)),
                 StrokeThickness = i % 5 == 0 ? 2 : 1
@@ -536,15 +878,20 @@ public class PomodoroPopupWindow : IDisposable
 
     private void LoadSettings()
     {
+        _isLoadingSettings = true;
         var settings = _settingsService.CurrentSettings;
         _focusIntervalSlider.Value = settings.ReminderIntervalMinutes;
         _breakIntervalSlider.Value = settings.BreakIntervalMinutes;
         _focusIntervalValueLabel.Text = $"{settings.ReminderIntervalMinutes} 分钟";
         _breakIntervalValueLabel.Text = $"{settings.BreakIntervalMinutes} 分钟";
+        _isLoadingSettings = false;
+        RefreshReminderSoundItems(settings.ReminderSoundSelectionId);
     }
 
     private void OnFocusIntervalChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
+        if (_isLoadingSettings) return;
+
         _focusIntervalValueLabel.Text = $"{(int)_focusIntervalSlider.Value} 分钟";
         if (_reminderService.IsRunning)
         {
@@ -560,6 +907,8 @@ public class PomodoroPopupWindow : IDisposable
 
     private void OnBreakIntervalChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
+        if (_isLoadingSettings) return;
+
         _breakIntervalValueLabel.Text = $"{(int)_breakIntervalSlider.Value} 分钟";
         if (_reminderService.IsRunning)
         {
@@ -573,6 +922,281 @@ public class PomodoroPopupWindow : IDisposable
         UpdateDisplay();
     }
 
+    private static ComboBoxItem CreateSoundItem(string label, string selectionId)
+    {
+        return new ComboBoxItem
+        {
+            Content = label,
+            Tag = selectionId
+        };
+    }
+
+    private static ComboBoxItem CreateSoundSeparatorItem()
+    {
+        return new ComboBoxItem
+        {
+            Content = "────────",
+            IsEnabled = false,
+            Focusable = false,
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(120, 120, 126))
+        };
+    }
+
+    private void RefreshReminderSoundItems(string? preferredSelectionId = null)
+    {
+        var settings = _settingsService.CurrentSettings;
+        var targetSelectionId = string.IsNullOrWhiteSpace(preferredSelectionId)
+            ? settings.ReminderSoundSelectionId
+            : preferredSelectionId;
+
+        _isLoadingSettings = true;
+        _reminderSoundComboBox.Items.Clear();
+
+        foreach (var (id, label) in BuiltinSoundOptions)
+        {
+            _reminderSoundComboBox.Items.Add(CreateSoundItem(label, id));
+        }
+
+        if (settings.CustomReminderSounds.Count > 0)
+        {
+            _reminderSoundComboBox.Items.Add(CreateSoundSeparatorItem());
+            foreach (var customItem in settings.CustomReminderSounds.OrderBy(item => item.AddedAtUtc))
+            {
+                _reminderSoundComboBox.Items.Add(CreateSoundItem(customItem.DisplayName, customItem.Id));
+            }
+        }
+
+        if (!SelectReminderSound(targetSelectionId))
+        {
+            SelectReminderSound(ReminderSoundPlayer.BuiltinAsteriskId);
+            settings.ReminderSoundSelectionId = ReminderSoundPlayer.BuiltinAsteriskId;
+            settings.ReminderSound = ReminderSoundType.Asterisk;
+            _settingsService.SaveSettings();
+        }
+
+        _isLoadingSettings = false;
+        UpdateCustomSoundButtonsState();
+    }
+
+    private bool SelectReminderSound(string? selectionId)
+    {
+        if (string.IsNullOrWhiteSpace(selectionId))
+        {
+            return false;
+        }
+
+        foreach (var item in _reminderSoundComboBox.Items)
+        {
+            if (item is ComboBoxItem comboItem &&
+                comboItem.Tag is string itemId &&
+                string.Equals(itemId, selectionId, StringComparison.OrdinalIgnoreCase))
+            {
+                _reminderSoundComboBox.SelectedItem = comboItem;
+                _lastValidSoundSelectionId = itemId;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void OnReminderSoundChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        if (_reminderSoundComboBox.SelectedItem is not ComboBoxItem selectedItem ||
+            selectedItem.Tag is not string selectedSelectionId)
+        {
+            _isLoadingSettings = true;
+            SelectReminderSound(_lastValidSoundSelectionId ?? ReminderSoundPlayer.BuiltinAsteriskId);
+            _isLoadingSettings = false;
+            return;
+        }
+
+        var settings = _settingsService.CurrentSettings;
+        settings.ReminderSoundSelectionId = selectedSelectionId;
+        settings.ReminderSound = ReminderSoundPlayer.MapSelectionIdToLegacySound(selectedSelectionId);
+        _lastValidSoundSelectionId = selectedSelectionId;
+        _settingsService.SaveSettings();
+        UpdateCustomSoundButtonsState();
+        ReminderSoundPlayer.Play(settings);
+    }
+
+    private void UpdateCustomSoundButtonsState()
+    {
+        if (_removeCustomSoundButton == null || _reminderSoundComboBox.SelectedItem is not ComboBoxItem selectedItem)
+        {
+            return;
+        }
+
+        var isCustom = selectedItem.Tag is string selectionId &&
+                       selectionId.StartsWith("custom:", StringComparison.OrdinalIgnoreCase);
+        _removeCustomSoundButton.IsEnabled = isCustom;
+        _removeCustomSoundButton.Opacity = isCustom ? 1 : 0.55;
+    }
+
+    private void OnAddCustomSoundClick(object sender, RoutedEventArgs e)
+    {
+        var openFileDialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择提醒音频",
+            Filter = "WAV 文件 (*.wav)|*.wav",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+
+        if (openFileDialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        if (!string.Equals(IoPath.GetExtension(openFileDialog.FileName), ".wav", StringComparison.OrdinalIgnoreCase))
+        {
+            System.Windows.MessageBox.Show(
+                "仅支持 WAV 格式音频。",
+                "添加音频",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var settings = _settingsService.CurrentSettings;
+        try
+        {
+            var soundsDirectory = ReminderSoundPlayer.GetSoundsDirectory();
+            Directory.CreateDirectory(soundsDirectory);
+
+            var fileId = Guid.NewGuid().ToString("N");
+            var originalName = IoPath.GetFileNameWithoutExtension(openFileDialog.FileName);
+            var safeName = SanitizeFileName(originalName);
+            if (string.IsNullOrWhiteSpace(safeName))
+            {
+                safeName = "sound";
+            }
+
+            var targetFileName = $"{fileId}_{safeName}.wav";
+            var targetPath = IoPath.Combine(soundsDirectory, targetFileName);
+            File.Copy(openFileDialog.FileName, targetPath, overwrite: false);
+
+            var customItem = new CustomReminderSoundItem
+            {
+                Id = $"custom:{fileId}",
+                DisplayName = originalName,
+                FileName = targetFileName,
+                AddedAtUtc = DateTime.UtcNow
+            };
+
+            settings.CustomReminderSounds.Add(customItem);
+            settings.ReminderSoundSelectionId = customItem.Id;
+            settings.ReminderSound = ReminderSoundPlayer.MapSelectionIdToLegacySound(customItem.Id);
+            _settingsService.SaveSettings();
+
+            RefreshReminderSoundItems(customItem.Id);
+            ReminderSoundPlayer.Play(settings);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ReminderSound] Failed to add custom sound: {ex}");
+            System.Windows.MessageBox.Show(
+                "添加音频失败，请重试。",
+                "添加音频",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private void OnRemoveCurrentCustomSoundClick(object sender, RoutedEventArgs e)
+    {
+        if (_reminderSoundComboBox.SelectedItem is not ComboBoxItem selectedItem ||
+            selectedItem.Tag is not string selectionId ||
+            !selectionId.StartsWith("custom:", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var settings = _settingsService.CurrentSettings;
+        var customItem = settings.CustomReminderSounds
+            .FirstOrDefault(item => string.Equals(item.Id, selectionId, StringComparison.OrdinalIgnoreCase));
+        if (customItem == null)
+        {
+            settings.ReminderSoundSelectionId = ReminderSoundPlayer.BuiltinAsteriskId;
+            settings.ReminderSound = ReminderSoundType.Asterisk;
+            _settingsService.SaveSettings();
+            RefreshReminderSoundItems(ReminderSoundPlayer.BuiltinAsteriskId);
+            return;
+        }
+
+        var confirm = System.Windows.MessageBox.Show(
+            $"确定删除音频“{customItem.DisplayName}”吗？",
+            "删除音频",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirm != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        settings.CustomReminderSounds.Remove(customItem);
+        settings.ReminderSoundSelectionId = ReminderSoundPlayer.BuiltinAsteriskId;
+        settings.ReminderSound = ReminderSoundType.Asterisk;
+        _settingsService.SaveSettings();
+
+        TryDeleteCustomSoundFile(customItem.FileName);
+        RefreshReminderSoundItems(ReminderSoundPlayer.BuiltinAsteriskId);
+        ReminderSoundPlayer.Play(settings);
+    }
+
+    private static void TryDeleteCustomSoundFile(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return;
+        }
+
+        try
+        {
+            var filePath = IoPath.Combine(ReminderSoundPlayer.GetSoundsDirectory(), fileName);
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[ReminderSound] Failed to delete custom sound file: {ex}");
+        }
+    }
+
+    private static string SanitizeFileName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return string.Empty;
+        }
+
+        var invalidChars = IoPath.GetInvalidFileNameChars();
+        var buffer = new StringBuilder(fileName.Length);
+        foreach (var ch in fileName.Trim())
+        {
+            if (Array.IndexOf(invalidChars, ch) < 0)
+            {
+                buffer.Append(ch);
+            }
+        }
+
+        var sanitized = buffer.ToString();
+        if (sanitized.Length > 40)
+        {
+            sanitized = sanitized[..40];
+        }
+
+        return sanitized;
+    }
+
     private void OnToggleClick()
     {
         if (_reminderService.IsRunning)
@@ -581,16 +1205,22 @@ public class PomodoroPopupWindow : IDisposable
         }
         else
         {
-            _reminderService.StartFocus();
+            ReminderSoundPlayer.Stop();
+            if (_reminderService.CurrentMode == PomodoroMode.Break)
+            {
+                _reminderService.StartBreak();
+            }
+            else
+            {
+                _reminderService.StartFocus();
+            }
         }
         UpdateDisplay();
     }
-
     private void UpdateDisplay()
     {
         var remaining = _reminderService.GetRemainingTime();
         _timeText.Text = $"{(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}";
-        _statusText.Text = _reminderService.CurrentMode == PomodoroMode.Break ? "🌿 休息中" : "🍅 专注中";
         UpdateProgress(remaining);
 
         var isRunning = _reminderService.IsRunning;
@@ -598,7 +1228,6 @@ public class PomodoroPopupWindow : IDisposable
         _breakIntervalSlider.IsEnabled = !isRunning;
         UpdateToggleButtonStyle();
     }
-
     public void RefreshDisplay()
     {
         UpdateDisplay();
@@ -607,20 +1236,63 @@ public class PomodoroPopupWindow : IDisposable
     private void UpdateToggleButtonStyle()
     {
         var isRunning = _reminderService.IsRunning;
-        if (isRunning)
-        {
-            _toggleButtonText.Text = "■ 停止";
-            _toggleButtonBorder.Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(130, 65, 65));
-            ((DropShadowEffect)_toggleButtonBorder.Effect).Color = System.Windows.Media.Color.FromRgb(130, 65, 65);
-        }
-        else
-        {
-            _toggleButtonText.Text = "▶ 开始专注";
-            _toggleButtonBorder.Background = TomatoColor;
-            ((DropShadowEffect)_toggleButtonBorder.Effect).Color = System.Windows.Media.Color.FromRgb(239, 89, 80);
-        }
+        var isBreakMode = _reminderService.CurrentMode == PomodoroMode.Break;
+
+        _toggleButtonText.Text = isRunning
+            ? (isBreakMode ? "结束休息" : "结束专注")
+            : (isBreakMode ? "开始休息" : "开始专注");
+
+        var baseColor = GetButtonBaseColor(isRunning, isBreakMode);
+        _toggleButtonBorder.Background = CreateBrush(baseColor);
+        ((DropShadowEffect)_toggleButtonBorder.Effect).Color = baseColor;
     }
 
+    private static SolidColorBrush CreateBrush(System.Windows.Media.Color color)
+    {
+        return new SolidColorBrush(color);
+    }
+
+    private static System.Windows.Media.Color GetButtonBaseColor(bool isRunning, bool isBreakMode)
+    {
+        if (isBreakMode)
+        {
+            return isRunning
+                ? System.Windows.Media.Color.FromRgb(76, 146, 106)
+                : BreakColor.Color;
+        }
+
+        return isRunning
+            ? System.Windows.Media.Color.FromRgb(130, 65, 65)
+            : TomatoColor.Color;
+    }
+
+    private static System.Windows.Media.Color GetButtonHoverColor(bool isRunning, bool isBreakMode)
+    {
+        if (isBreakMode)
+        {
+            return isRunning
+                ? System.Windows.Media.Color.FromRgb(88, 166, 120)
+                : System.Windows.Media.Color.FromRgb(130, 210, 156);
+        }
+
+        return isRunning
+            ? System.Windows.Media.Color.FromRgb(160, 80, 80)
+            : System.Windows.Media.Color.FromRgb(255, 110, 100);
+    }
+
+    private static System.Windows.Media.Color GetButtonPressedColor(bool isRunning, bool isBreakMode)
+    {
+        if (isBreakMode)
+        {
+            return isRunning
+                ? System.Windows.Media.Color.FromRgb(64, 128, 92)
+                : System.Windows.Media.Color.FromRgb(88, 166, 120);
+        }
+
+        return isRunning
+            ? System.Windows.Media.Color.FromRgb(120, 55, 55)
+            : TomatoDarkColor.Color;
+    }
     private void UpdateProgress(TimeSpan remaining)
     {
         var totalMinutes = _reminderService.CurrentMode == PomodoroMode.Break
@@ -680,3 +1352,7 @@ public class PomodoroPopupWindow : IDisposable
         _popup.IsOpen = false;
     }
 }
+
+
+
+

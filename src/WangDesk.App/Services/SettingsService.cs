@@ -44,7 +44,15 @@ public class SettingsService : ISettingsService
                 if (loadedSettings != null)
                 {
                     _settings = loadedSettings;
-                    SettingsChanged?.Invoke(this, _settings);
+                    var hasMigration = NormalizeSettings(_settings);
+                    if (hasMigration)
+                    {
+                        SaveSettings();
+                    }
+                    else
+                    {
+                        SettingsChanged?.Invoke(this, _settings);
+                    }
                 }
             }
         }
@@ -53,6 +61,60 @@ public class SettingsService : ISettingsService
             // 使用默认设置
             _settings = new AppSettings();
         }
+    }
+
+    private static bool NormalizeSettings(AppSettings settings)
+    {
+        var hasChanges = false;
+
+        if (settings.CustomReminderSounds == null)
+        {
+            settings.CustomReminderSounds = [];
+            hasChanges = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.ReminderSoundSelectionId))
+        {
+            settings.ReminderSoundSelectionId = ReminderSoundPlayer.MapLegacySoundToSelectionId(settings.ReminderSound);
+            hasChanges = true;
+        }
+        else if (!ReminderSoundPlayer.IsBuiltinSelectionId(settings.ReminderSoundSelectionId) &&
+                 !settings.ReminderSoundSelectionId.StartsWith("custom:", StringComparison.OrdinalIgnoreCase))
+        {
+            settings.ReminderSoundSelectionId = AppSettings.DefaultReminderSoundSelectionId;
+            hasChanges = true;
+        }
+
+        if (settings.CustomReminderSounds.Count > 0)
+        {
+            var originalCount = settings.CustomReminderSounds.Count;
+            settings.CustomReminderSounds = settings.CustomReminderSounds
+                .Where(item =>
+                    item != null &&
+                    !string.IsNullOrWhiteSpace(item.Id) &&
+                    !string.IsNullOrWhiteSpace(item.DisplayName) &&
+                    !string.IsNullOrWhiteSpace(item.FileName))
+                .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+            if (settings.CustomReminderSounds.Count != originalCount)
+            {
+                hasChanges = true;
+            }
+        }
+
+        if (settings.ReminderSoundSelectionId.StartsWith("custom:", StringComparison.OrdinalIgnoreCase))
+        {
+            var exists = settings.CustomReminderSounds
+                .Any(item => string.Equals(item.Id, settings.ReminderSoundSelectionId, StringComparison.OrdinalIgnoreCase));
+            if (!exists)
+            {
+                settings.ReminderSoundSelectionId = AppSettings.DefaultReminderSoundSelectionId;
+                hasChanges = true;
+            }
+        }
+
+        return hasChanges;
     }
 
     public void SaveSettings()
