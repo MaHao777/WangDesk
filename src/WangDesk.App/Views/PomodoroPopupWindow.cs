@@ -53,8 +53,11 @@ public class PomodoroPopupWindow : IDisposable
     private ComboBox _reminderSoundComboBox = null!;
     private WpfButton _addCustomSoundButton = null!;
     private WpfButton _removeCustomSoundButton = null!;
-    private Border _toggleButtonBorder = null!;
-    private TextBlock _toggleButtonText = null!;
+    private StackPanel _idleActionButtonsPanel = null!;
+    private Border _startFocusButtonBorder = null!;
+    private Border _startBreakButtonBorder = null!;
+    private Border _stopCurrentButtonBorder = null!;
+    private TextBlock _stopCurrentButtonText = null!;
     private Grid _mainPanel = null!;
     private Grid _settingsPanel = null!;
     private Border _openSettingsButton = null!;
@@ -406,57 +409,49 @@ public class PomodoroPopupWindow : IDisposable
         Grid.SetRow(canvas, 0);
         grid.Children.Add(canvas);
 
-        var buttonPanel = new StackPanel
+        var actionButtonsHost = new Grid
+        {
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+
+        _idleActionButtonsPanel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
-        _toggleButtonText = new TextBlock
-        {
-            Text = "开始专注",
-            Foreground = Brushes.White,
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        _startFocusButtonBorder = CreateActionButton("开始专注", 104);
+        _startFocusButtonBorder.Margin = new Thickness(0, 0, 10, 0);
+        ConfigureActionButtonInteractions(
+            _startFocusButtonBorder,
+            () => GetButtonBaseColor(isRunning: false, isBreakMode: false),
+            () => GetButtonHoverColor(isRunning: false, isBreakMode: false),
+            () => GetButtonPressedColor(isRunning: false, isBreakMode: false),
+            OnStartFocusClick);
+        _idleActionButtonsPanel.Children.Add(_startFocusButtonBorder);
 
-        _toggleButtonBorder = new Border
-        {
-            Width = 140,
-            Height = 40,
-            CornerRadius = new CornerRadius(20),
-            Background = TomatoColor,
-            Cursor = Cursors.Hand,
-            Child = _toggleButtonText,
-            Effect = new DropShadowEffect
-            {
-                Color = System.Windows.Media.Color.FromRgb(239, 89, 80),
-                BlurRadius = 12,
-                ShadowDepth = 0,
-                Opacity = 0.35
-            }
-        };
+        _startBreakButtonBorder = CreateActionButton("开始休息", 104);
+        ConfigureActionButtonInteractions(
+            _startBreakButtonBorder,
+            () => GetButtonBaseColor(isRunning: false, isBreakMode: true),
+            () => GetButtonHoverColor(isRunning: false, isBreakMode: true),
+            () => GetButtonPressedColor(isRunning: false, isBreakMode: true),
+            OnStartBreakClick);
+        _idleActionButtonsPanel.Children.Add(_startBreakButtonBorder);
 
-        _toggleButtonBorder.MouseEnter += (s, e) =>
-        {
-            var isRunning = _reminderService.IsRunning;
-            var isBreakMode = _reminderService.CurrentMode == PomodoroMode.Break;
-            _toggleButtonBorder.Background = CreateBrush(GetButtonHoverColor(isRunning, isBreakMode));
-        };
-        _toggleButtonBorder.MouseLeave += (s, e) => UpdateToggleButtonStyle();
-        _toggleButtonBorder.MouseLeftButtonDown += (s, e) =>
-        {
-            var isRunning = _reminderService.IsRunning;
-            var isBreakMode = _reminderService.CurrentMode == PomodoroMode.Break;
-            _toggleButtonBorder.Background = CreateBrush(GetButtonPressedColor(isRunning, isBreakMode));
-        };
-        _toggleButtonBorder.MouseLeftButtonUp += (s, e) => OnToggleClick();
+        _stopCurrentButtonText = CreateActionButtonText("结束专注");
+        _stopCurrentButtonBorder = CreateActionButtonBorder(_stopCurrentButtonText, 140);
+        ConfigureActionButtonInteractions(
+            _stopCurrentButtonBorder,
+            () => GetButtonBaseColor(isRunning: true, isBreakMode: _reminderService.CurrentMode == PomodoroMode.Break),
+            () => GetButtonHoverColor(isRunning: true, isBreakMode: _reminderService.CurrentMode == PomodoroMode.Break),
+            () => GetButtonPressedColor(isRunning: true, isBreakMode: _reminderService.CurrentMode == PomodoroMode.Break),
+            OnStopCurrentClick);
 
-        buttonPanel.Children.Add(_toggleButtonBorder);
-        Grid.SetRow(buttonPanel, 1);
-        grid.Children.Add(buttonPanel);
+        actionButtonsHost.Children.Add(_idleActionButtonsPanel);
+        actionButtonsHost.Children.Add(_stopCurrentButtonBorder);
+        Grid.SetRow(actionButtonsHost, 1);
+        grid.Children.Add(actionButtonsHost);
 
         return grid;
     }
@@ -637,6 +632,70 @@ public class PomodoroPopupWindow : IDisposable
             BorderThickness = new Thickness(1),
             Cursor = Cursors.Hand
         };
+    }
+
+    private static TextBlock CreateActionButtonText(string text)
+    {
+        return new TextBlock
+        {
+            Text = text,
+            Foreground = Brushes.White,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+    }
+
+    private static Border CreateActionButtonBorder(TextBlock textBlock, double width)
+    {
+        return new Border
+        {
+            Width = width,
+            Height = 40,
+            CornerRadius = new CornerRadius(20),
+            Cursor = Cursors.Hand,
+            Child = textBlock,
+            Effect = new DropShadowEffect
+            {
+                BlurRadius = 12,
+                ShadowDepth = 0,
+                Opacity = 0.35
+            }
+        };
+    }
+
+    private static Border CreateActionButton(string text, double width)
+    {
+        return CreateActionButtonBorder(CreateActionButtonText(text), width);
+    }
+
+    private static void ApplyActionButtonColor(Border button, System.Windows.Media.Color color)
+    {
+        button.Background = CreateBrush(color);
+        if (button.Effect is DropShadowEffect shadow)
+        {
+            shadow.Color = color;
+        }
+    }
+
+    private static void ConfigureActionButtonInteractions(
+        Border button,
+        Func<System.Windows.Media.Color> baseColorProvider,
+        Func<System.Windows.Media.Color> hoverColorProvider,
+        Func<System.Windows.Media.Color> pressedColorProvider,
+        Action onClick)
+    {
+        button.MouseEnter += (s, e) => ApplyActionButtonColor(button, hoverColorProvider());
+        button.MouseLeave += (s, e) => ApplyActionButtonColor(button, baseColorProvider());
+        button.MouseLeftButtonDown += (s, e) => ApplyActionButtonColor(button, pressedColorProvider());
+        button.MouseLeftButtonUp += (s, e) =>
+        {
+            onClick();
+            ApplyActionButtonColor(button, baseColorProvider());
+        };
+
+        ApplyActionButtonColor(button, baseColorProvider());
     }
 
     private static ComboBox CreateStyledComboBox()
@@ -1197,26 +1256,41 @@ public class PomodoroPopupWindow : IDisposable
         return sanitized;
     }
 
-    private void OnToggleClick()
+    private void OnStartFocusClick()
     {
         if (_reminderService.IsRunning)
         {
-            _reminderService.Stop();
+            return;
         }
-        else
-        {
-            ReminderSoundPlayer.Stop();
-            if (_reminderService.CurrentMode == PomodoroMode.Break)
-            {
-                _reminderService.StartBreak();
-            }
-            else
-            {
-                _reminderService.StartFocus();
-            }
-        }
+
+        ReminderSoundPlayer.Stop();
+        _reminderService.StartFocus();
         UpdateDisplay();
     }
+
+    private void OnStartBreakClick()
+    {
+        if (_reminderService.IsRunning)
+        {
+            return;
+        }
+
+        ReminderSoundPlayer.Stop();
+        _reminderService.StartBreak();
+        UpdateDisplay();
+    }
+
+    private void OnStopCurrentClick()
+    {
+        if (!_reminderService.IsRunning)
+        {
+            return;
+        }
+
+        _reminderService.Stop();
+        UpdateDisplay();
+    }
+
     private void UpdateDisplay()
     {
         var remaining = _reminderService.GetRemainingTime();
@@ -1226,25 +1300,26 @@ public class PomodoroPopupWindow : IDisposable
         var isRunning = _reminderService.IsRunning;
         _focusIntervalSlider.IsEnabled = !isRunning;
         _breakIntervalSlider.IsEnabled = !isRunning;
-        UpdateToggleButtonStyle();
+        UpdateActionButtonsState();
     }
+
     public void RefreshDisplay()
     {
         UpdateDisplay();
     }
 
-    private void UpdateToggleButtonStyle()
+    private void UpdateActionButtonsState()
     {
         var isRunning = _reminderService.IsRunning;
         var isBreakMode = _reminderService.CurrentMode == PomodoroMode.Break;
 
-        _toggleButtonText.Text = isRunning
-            ? (isBreakMode ? "结束休息" : "结束专注")
-            : (isBreakMode ? "开始休息" : "开始专注");
+        _idleActionButtonsPanel.Visibility = isRunning ? Visibility.Collapsed : Visibility.Visible;
+        _stopCurrentButtonBorder.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
+        _stopCurrentButtonText.Text = isBreakMode ? "结束休息" : "结束专注";
 
-        var baseColor = GetButtonBaseColor(isRunning, isBreakMode);
-        _toggleButtonBorder.Background = CreateBrush(baseColor);
-        ((DropShadowEffect)_toggleButtonBorder.Effect).Color = baseColor;
+        ApplyActionButtonColor(_startFocusButtonBorder, GetButtonBaseColor(isRunning: false, isBreakMode: false));
+        ApplyActionButtonColor(_startBreakButtonBorder, GetButtonBaseColor(isRunning: false, isBreakMode: true));
+        ApplyActionButtonColor(_stopCurrentButtonBorder, GetButtonBaseColor(isRunning: true, isBreakMode));
     }
 
     private static SolidColorBrush CreateBrush(System.Windows.Media.Color color)
