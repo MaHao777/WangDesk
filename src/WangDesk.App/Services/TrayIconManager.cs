@@ -84,6 +84,7 @@ public class TrayIconManager : IDisposable
 
         _settingsService.SettingsChanged += OnSettingsChanged;
         _reminderService.ReminderTriggered += OnReminderTriggered;
+        _reminderService.SessionEnded += OnSessionEnded;
     }
 
     /// <summary>
@@ -102,6 +103,51 @@ public class TrayIconManager : IDisposable
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[ReminderPopup] Failed to show popup: {ex}");
+        }
+    }
+
+    private void OnSessionEnded(object? sender, PomodoroSessionEndedEventArgs e)
+    {
+        if (e.Mode != PomodoroMode.Focus)
+        {
+            return;
+        }
+
+        try
+        {
+            System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+            {
+                var settings = _settingsService.CurrentSettings;
+                var today = DateOnly.FromDateTime(DateTime.Now);
+                var hasChanges = false;
+
+                if (settings.FocusTodayDate != today)
+                {
+                    settings.FocusTodayDate = today;
+                    settings.FocusTodayCompletedSeconds = 0;
+                    hasChanges = true;
+                }
+
+                var todayStart = today.ToDateTime(TimeOnly.MinValue);
+                var tomorrowStart = todayStart.AddDays(1);
+                var overlapStart = e.StartedAtLocal > todayStart ? e.StartedAtLocal : todayStart;
+                var overlapEnd = e.EndedAtLocal < tomorrowStart ? e.EndedAtLocal : tomorrowStart;
+                var overlapSeconds = (int)Math.Floor(Math.Max(0, (overlapEnd - overlapStart).TotalSeconds));
+                if (overlapSeconds > 0)
+                {
+                    settings.FocusTodayCompletedSeconds = Math.Max(0, settings.FocusTodayCompletedSeconds + overlapSeconds);
+                    hasChanges = true;
+                }
+
+                if (hasChanges)
+                {
+                    _settingsService.SaveSettings();
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PomodoroStats] Failed to update daily focus stats: {ex}");
         }
     }
 
@@ -387,6 +433,11 @@ public class TrayIconManager : IDisposable
 
     public void Dispose()
     {
+        _systemMonitor.MetricsUpdated -= OnMetricsUpdated;
+        _settingsService.SettingsChanged -= OnSettingsChanged;
+        _reminderService.ReminderTriggered -= OnReminderTriggered;
+        _reminderService.SessionEnded -= OnSessionEnded;
+
         _animationTimer?.Stop();
         _animationTimer?.Dispose();
         _tooltipUpdateTimer?.Stop();

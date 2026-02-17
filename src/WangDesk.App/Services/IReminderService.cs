@@ -51,6 +51,11 @@ public interface IReminderService
     event EventHandler<ReminderTriggeredEventArgs>? ReminderTriggered;
 
     /// <summary>
+    /// 会话结束事件
+    /// </summary>
+    event EventHandler<PomodoroSessionEndedEventArgs>? SessionEnded;
+
+    /// <summary>
     /// 是否正在运行
     /// </summary>
     bool IsRunning { get; }
@@ -69,4 +74,9 @@ public interface IReminderService
     /// 休息时长（分钟）
     /// </summary>
     int BreakIntervalMinutes { get; }
+
+    /// <summary>
+    /// 当前会话开始时间（本地时间）
+    /// </summary>
+    DateTime? CurrentSessionStartTimeLocal { get; }
 }
