@@ -45,7 +45,9 @@ public class PomodoroPopupWindow : IDisposable
     public bool IsOpen => _popup.IsOpen && !_isClosing;
 
     private TextBlock _timeText = null!;
+    private TextBlock _todayFocusLabelText = null!;
     private TextBlock _todayFocusValueText = null!;
+    private TextBlock _todayFocusHintText = null!;
     private ShapePath _progressPath = null!;
     private Slider _focusIntervalSlider = null!;
     private TextBlock _focusIntervalValueLabel = null!;
@@ -64,6 +66,8 @@ public class PomodoroPopupWindow : IDisposable
     private Border _openSettingsButton = null!;
     private Border _backButton = null!;
     private Border _todayFocusHeaderBorder = null!;
+    private ScaleTransform _todayFocusHeaderScaleTransform = null!;
+    private TranslateTransform _todayFocusHeaderTranslateTransform = null!;
     private TextBlock _headerTitle = null!;
     private string? _lastValidSoundSelectionId;
 
@@ -295,7 +299,7 @@ public class PomodoroPopupWindow : IDisposable
             VerticalAlignment = VerticalAlignment.Center
         };
 
-        var todayFocusLabel = new TextBlock
+        _todayFocusLabelText = new TextBlock
         {
             Text = "今日已专注",
             Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(176, 176, 182)),
@@ -304,13 +308,38 @@ public class PomodoroPopupWindow : IDisposable
             VerticalAlignment = VerticalAlignment.Center
         };
 
-        var todayFocusStatsPanel = new StackPanel
+        var todayFocusSummaryRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Left
         };
-        todayFocusStatsPanel.Children.Add(todayFocusLabel);
-        todayFocusStatsPanel.Children.Add(_todayFocusValueText);
+        todayFocusSummaryRow.Children.Add(_todayFocusLabelText);
+        todayFocusSummaryRow.Children.Add(_todayFocusValueText);
+
+        _todayFocusHintText = new TextBlock
+        {
+            Text = "Patience is key in life",
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(168, 169, 176)),
+            FontSize = 11,
+            Margin = new Thickness(0, 3, 0, 0),
+            Opacity = 0,
+            MaxHeight = 0,
+            Visibility = Visibility.Collapsed
+        };
+
+        var todayFocusStatsPanel = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        todayFocusStatsPanel.Children.Add(todayFocusSummaryRow);
+        todayFocusStatsPanel.Children.Add(_todayFocusHintText);
+
+        _todayFocusHeaderScaleTransform = new ScaleTransform(1, 1);
+        _todayFocusHeaderTranslateTransform = new TranslateTransform(0, 0);
+        var todayFocusHeaderTransformGroup = new TransformGroup();
+        todayFocusHeaderTransformGroup.Children.Add(_todayFocusHeaderScaleTransform);
+        todayFocusHeaderTransformGroup.Children.Add(_todayFocusHeaderTranslateTransform);
 
         _todayFocusHeaderBorder = new Border
         {
@@ -319,9 +348,13 @@ public class PomodoroPopupWindow : IDisposable
             Padding = new Thickness(10, 6, 10, 6),
             Margin = new Thickness(-20, -20, 0, 0),
             HorizontalAlignment = HorizontalAlignment.Left,
+            RenderTransform = todayFocusHeaderTransformGroup,
+            RenderTransformOrigin = new System.Windows.Point(0, 0),
             Visibility = Visibility.Visible,
             Child = todayFocusStatsPanel
         };
+        _todayFocusHeaderBorder.MouseEnter += (s, e) => AnimateTodayFocusHeader(hovered: true);
+        _todayFocusHeaderBorder.MouseLeave += (s, e) => AnimateTodayFocusHeader(hovered: false);
         Grid.SetColumn(_todayFocusHeaderBorder, 0);
         headerGrid.Children.Add(_todayFocusHeaderBorder);
 
@@ -877,6 +910,104 @@ public class PomodoroPopupWindow : IDisposable
         _backButton.Visibility = _isSettingsView ? Visibility.Visible : Visibility.Collapsed;
         _todayFocusHeaderBorder.Visibility = _isSettingsView ? Visibility.Collapsed : Visibility.Visible;
         _headerTitle.Visibility = _isSettingsView ? Visibility.Visible : Visibility.Collapsed;
+        if (_isSettingsView)
+        {
+            ResetTodayFocusHeaderVisualState();
+        }
+    }
+
+    private void AnimateTodayFocusHeader(bool hovered)
+    {
+        if (_todayFocusHeaderScaleTransform == null ||
+            _todayFocusHeaderTranslateTransform == null ||
+            _todayFocusHintText == null ||
+            _todayFocusLabelText == null ||
+            _todayFocusValueText == null)
+        {
+            return;
+        }
+
+        var duration = TimeSpan.FromMilliseconds(240);
+        var scaleTarget = hovered ? 1.1 : 1.0;
+        var translateTarget = hovered ? 2.5 : 0.0;
+        var easing = new CubicEase
+        {
+            EasingMode = hovered ? EasingMode.EaseOut : EasingMode.EaseIn
+        };
+
+        var scaleAnimation = new DoubleAnimation(scaleTarget, duration)
+        {
+            EasingFunction = easing
+        };
+
+        _todayFocusHeaderScaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, scaleAnimation);
+        _todayFocusHeaderScaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnimation);
+
+        var translateAnimation = new DoubleAnimation(translateTarget, duration)
+        {
+            EasingFunction = easing
+        };
+        _todayFocusHeaderTranslateTransform.BeginAnimation(TranslateTransform.XProperty, translateAnimation);
+        _todayFocusHeaderTranslateTransform.BeginAnimation(TranslateTransform.YProperty, translateAnimation);
+
+        var labelSizeAnimation = new DoubleAnimation(hovered ? 13 : 12, duration)
+        {
+            EasingFunction = easing
+        };
+        _todayFocusLabelText.BeginAnimation(TextBlock.FontSizeProperty, labelSizeAnimation);
+
+        var valueSizeAnimation = new DoubleAnimation(hovered ? 15.5 : 14, duration)
+        {
+            EasingFunction = easing
+        };
+        _todayFocusValueText.BeginAnimation(TextBlock.FontSizeProperty, valueSizeAnimation);
+
+        if (hovered)
+        {
+            _todayFocusHintText.Visibility = Visibility.Visible;
+        }
+
+        var hintOpacityAnimation = new DoubleAnimation(hovered ? 1 : 0, duration)
+        {
+            EasingFunction = easing
+        };
+        _todayFocusHintText.BeginAnimation(UIElement.OpacityProperty, hintOpacityAnimation);
+
+        var hintHeightAnimation = new DoubleAnimation(hovered ? 16 : 0, duration)
+        {
+            EasingFunction = easing
+        };
+        if (!hovered)
+        {
+            hintHeightAnimation.Completed += (s, e) =>
+            {
+                _todayFocusHintText.Visibility = Visibility.Collapsed;
+            };
+        }
+
+        _todayFocusHintText.BeginAnimation(FrameworkElement.MaxHeightProperty, hintHeightAnimation);
+    }
+
+    private void ResetTodayFocusHeaderVisualState()
+    {
+        _todayFocusHeaderScaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        _todayFocusHeaderScaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        _todayFocusHeaderTranslateTransform.BeginAnimation(TranslateTransform.XProperty, null);
+        _todayFocusHeaderTranslateTransform.BeginAnimation(TranslateTransform.YProperty, null);
+        _todayFocusLabelText.BeginAnimation(TextBlock.FontSizeProperty, null);
+        _todayFocusValueText.BeginAnimation(TextBlock.FontSizeProperty, null);
+        _todayFocusHintText.BeginAnimation(UIElement.OpacityProperty, null);
+        _todayFocusHintText.BeginAnimation(FrameworkElement.MaxHeightProperty, null);
+
+        _todayFocusHeaderScaleTransform.ScaleX = 1;
+        _todayFocusHeaderScaleTransform.ScaleY = 1;
+        _todayFocusHeaderTranslateTransform.X = 0;
+        _todayFocusHeaderTranslateTransform.Y = 0;
+        _todayFocusLabelText.FontSize = 12;
+        _todayFocusValueText.FontSize = 14;
+        _todayFocusHintText.Opacity = 0;
+        _todayFocusHintText.MaxHeight = 0;
+        _todayFocusHintText.Visibility = Visibility.Collapsed;
     }
 
     private Slider CreateStyledSlider()
