@@ -9,6 +9,7 @@ public class ReminderService : IReminderService, IDisposable
 {
     private System.Timers.Timer? _timer;
     private DateTime _startTime;
+    private DateTime? _currentSessionStartTimeLocal;
     private int _focusIntervalMinutes;
     private int _breakIntervalMinutes;
     private PomodoroMode _currentMode = PomodoroMode.Focus;
@@ -18,8 +19,19 @@ public class ReminderService : IReminderService, IDisposable
     public PomodoroMode CurrentMode => _currentMode;
     public int FocusIntervalMinutes => _focusIntervalMinutes;
     public int BreakIntervalMinutes => _breakIntervalMinutes;
+    public DateTime? CurrentSessionStartTimeLocal
+    {
+        get
+        {
+            lock (_lockObject)
+            {
+                return _currentSessionStartTimeLocal;
+            }
+        }
+    }
 
     public event EventHandler<ReminderTriggeredEventArgs>? ReminderTriggered;
+    public event EventHandler<PomodoroSessionEndedEventArgs>? SessionEnded;
 
     public ReminderService(int defaultFocusIntervalMinutes = 45, int defaultBreakIntervalMinutes = 5)
     {
@@ -54,15 +66,33 @@ public class ReminderService : IReminderService, IDisposable
         }
 
         _startTime = DateTime.Now;
+        _currentSessionStartTimeLocal = _startTime;
         _timer.Start();
     }
 
     public void Stop()
     {
+        PomodoroSessionEndedEventArgs? sessionEndedArgs = null;
+
         lock (_lockObject)
         {
+            if (!IsRunning)
+            {
+                _startTime = DateTime.Now;
+                _currentSessionStartTimeLocal = null;
+                return;
+            }
+
+            var endedAtLocal = DateTime.Now;
             _timer?.Stop();
-            _startTime = DateTime.Now;
+            sessionEndedArgs = CreateSessionEndedEventArgs(endedAtLocal);
+            _startTime = endedAtLocal;
+            _currentSessionStartTimeLocal = null;
+        }
+
+        if (sessionEndedArgs != null)
+        {
+            SessionEnded?.Invoke(this, sessionEndedArgs);
         }
     }
 
@@ -71,6 +101,10 @@ public class ReminderService : IReminderService, IDisposable
         lock (_lockObject)
         {
             _startTime = DateTime.Now;
+            if (IsRunning)
+            {
+                _currentSessionStartTimeLocal = _startTime;
+            }
         }
     }
 
@@ -84,6 +118,7 @@ public class ReminderService : IReminderService, IDisposable
             if (IsRunning && _currentMode == PomodoroMode.Focus)
             {
                 _startTime = DateTime.Now;
+                _currentSessionStartTimeLocal = _startTime;
             }
         }
     }
@@ -98,6 +133,7 @@ public class ReminderService : IReminderService, IDisposable
             if (IsRunning && _currentMode == PomodoroMode.Break)
             {
                 _startTime = DateTime.Now;
+                _currentSessionStartTimeLocal = _startTime;
             }
         }
     }
@@ -126,6 +162,7 @@ public class ReminderService : IReminderService, IDisposable
     {
         bool shouldNotify = false;
         PomodoroMode completedMode = PomodoroMode.Focus;
+        PomodoroSessionEndedEventArgs? sessionEndedArgs = null;
 
         lock (_lockObject)
         {
@@ -135,16 +172,41 @@ public class ReminderService : IReminderService, IDisposable
             var intervalMinutes = GetCurrentIntervalMinutes();
             if (elapsed.TotalMinutes >= intervalMinutes)
             {
+                var endedAtLocal = DateTime.Now;
                 _timer?.Stop();
                 completedMode = _currentMode;
+                sessionEndedArgs = CreateSessionEndedEventArgs(endedAtLocal);
+                _startTime = endedAtLocal;
+                _currentSessionStartTimeLocal = null;
                 shouldNotify = true;
             }
         }
 
         if (shouldNotify)
         {
+            if (sessionEndedArgs != null)
+            {
+                SessionEnded?.Invoke(this, sessionEndedArgs);
+            }
             ReminderTriggered?.Invoke(this, new ReminderTriggeredEventArgs(completedMode));
         }
+    }
+
+    private PomodoroSessionEndedEventArgs CreateSessionEndedEventArgs(DateTime endedAtLocal)
+    {
+        var mode = _currentMode;
+        var startedAtLocal = _currentSessionStartTimeLocal ?? _startTime;
+        var maxDuration = TimeSpan.FromMinutes(GetCurrentIntervalMinutes());
+        var rawElapsed = endedAtLocal - startedAtLocal;
+        if (rawElapsed < TimeSpan.Zero)
+        {
+            rawElapsed = TimeSpan.Zero;
+        }
+
+        var elapsed = rawElapsed > maxDuration ? maxDuration : rawElapsed;
+        var normalizedEndedAtLocal = startedAtLocal.Add(elapsed);
+
+        return new PomodoroSessionEndedEventArgs(mode, startedAtLocal, normalizedEndedAtLocal, elapsed);
     }
 
     private int GetCurrentIntervalMinutes()

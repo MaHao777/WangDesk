@@ -16,6 +16,8 @@ public class AppSettings : INotifyPropertyChanged
     private ReminderSoundType _reminderSound = ReminderSoundType.Asterisk;
     private string _reminderSoundSelectionId = DefaultReminderSoundSelectionId;
     private List<CustomReminderSoundItem> _customReminderSounds = [];
+    private DateOnly _focusTodayDate = DateOnly.FromDateTime(DateTime.Now);
+    private int _focusTodayCompletedSeconds;
 
     /// <summary>
     /// 提醒间隔（分钟）
@@ -71,6 +73,24 @@ public class AppSettings : INotifyPropertyChanged
         set => SetProperty(ref _customReminderSounds, NormalizeCustomReminderSounds(value));
     }
 
+    /// <summary>
+    /// 今日专注统计对应的本地日期
+    /// </summary>
+    public DateOnly FocusTodayDate
+    {
+        get => _focusTodayDate;
+        set => SetProperty(ref _focusTodayDate, NormalizeFocusTodayDate(value));
+    }
+
+    /// <summary>
+    /// 今日已完成专注累计秒数
+    /// </summary>
+    public int FocusTodayCompletedSeconds
+    {
+        get => _focusTodayCompletedSeconds;
+        set => SetProperty(ref _focusTodayCompletedSeconds, NormalizeFocusTodayCompletedSeconds(value));
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string propertyName = null!)
@@ -99,5 +119,15 @@ public class AppSettings : INotifyPropertyChanged
     private static List<CustomReminderSoundItem> NormalizeCustomReminderSounds(List<CustomReminderSoundItem>? value)
     {
         return value ?? [];
+    }
+
+    private static DateOnly NormalizeFocusTodayDate(DateOnly value)
+    {
+        return value == default ? DateOnly.FromDateTime(DateTime.Now) : value;
+    }
+
+    private static int NormalizeFocusTodayCompletedSeconds(int value)
+    {
+        return value < 0 ? 0 : value;
     }
 }

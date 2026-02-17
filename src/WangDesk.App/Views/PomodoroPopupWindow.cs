@@ -45,6 +45,7 @@ public class PomodoroPopupWindow : IDisposable
     public bool IsOpen => _popup.IsOpen && !_isClosing;
 
     private TextBlock _timeText = null!;
+    private TextBlock _todayFocusValueText = null!;
     private ShapePath _progressPath = null!;
     private Slider _focusIntervalSlider = null!;
     private TextBlock _focusIntervalValueLabel = null!;
@@ -330,6 +331,7 @@ public class PomodoroPopupWindow : IDisposable
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var canvas = new Canvas
         {
@@ -409,6 +411,44 @@ public class PomodoroPopupWindow : IDisposable
         Grid.SetRow(canvas, 0);
         grid.Children.Add(canvas);
 
+        var todayFocusStatsBorder = new Border
+        {
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(125, BgLightColor.Color.R, BgLightColor.Color.G, BgLightColor.Color.B)),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(12, 8, 12, 8),
+            Margin = new Thickness(0, 0, 0, 14)
+        };
+
+        var todayFocusStatsPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+
+        var todayFocusLabel = new TextBlock
+        {
+            Text = "今日已专注",
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(176, 176, 182)),
+            FontSize = 12,
+            Margin = new Thickness(0, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        _todayFocusValueText = new TextBlock
+        {
+            Text = "00:00",
+            Foreground = Brushes.White,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        todayFocusStatsPanel.Children.Add(todayFocusLabel);
+        todayFocusStatsPanel.Children.Add(_todayFocusValueText);
+        todayFocusStatsBorder.Child = todayFocusStatsPanel;
+        Grid.SetRow(todayFocusStatsBorder, 1);
+        grid.Children.Add(todayFocusStatsBorder);
+
         var actionButtonsHost = new Grid
         {
             HorizontalAlignment = HorizontalAlignment.Center
@@ -450,7 +490,7 @@ public class PomodoroPopupWindow : IDisposable
 
         actionButtonsHost.Children.Add(_idleActionButtonsPanel);
         actionButtonsHost.Children.Add(_stopCurrentButtonBorder);
-        Grid.SetRow(actionButtonsHost, 1);
+        Grid.SetRow(actionButtonsHost, 2);
         grid.Children.Add(actionButtonsHost);
 
         return grid;
@@ -1296,11 +1336,40 @@ public class PomodoroPopupWindow : IDisposable
         var remaining = _reminderService.GetRemainingTime();
         _timeText.Text = $"{(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}";
         UpdateProgress(remaining);
+        UpdateTodayFocusTotalDisplay();
 
         var isRunning = _reminderService.IsRunning;
         _focusIntervalSlider.IsEnabled = !isRunning;
         _breakIntervalSlider.IsEnabled = !isRunning;
         UpdateActionButtonsState();
+    }
+
+    private void UpdateTodayFocusTotalDisplay()
+    {
+        var settings = _settingsService.CurrentSettings;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var todayStart = today.ToDateTime(TimeOnly.MinValue);
+        var persistedSeconds = settings.FocusTodayDate == today ? settings.FocusTodayCompletedSeconds : 0;
+
+        var ongoingSeconds = 0;
+        if (_reminderService.IsRunning &&
+            _reminderService.CurrentMode == PomodoroMode.Focus &&
+            _reminderService.CurrentSessionStartTimeLocal.HasValue)
+        {
+            var ongoingStart = _reminderService.CurrentSessionStartTimeLocal.Value;
+            if (ongoingStart < todayStart)
+            {
+                ongoingStart = todayStart;
+            }
+
+            ongoingSeconds = (int)Math.Floor(Math.Max(0, (DateTime.Now - ongoingStart).TotalSeconds));
+        }
+
+        var totalSeconds = Math.Max(0, persistedSeconds + ongoingSeconds);
+        var totalMinutes = totalSeconds / 60;
+        var hours = totalMinutes / 60;
+        var minutes = totalMinutes % 60;
+        _todayFocusValueText.Text = $"{hours:00}:{minutes:00}";
     }
 
     public void RefreshDisplay()

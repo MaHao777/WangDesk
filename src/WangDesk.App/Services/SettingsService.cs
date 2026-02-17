@@ -66,6 +66,7 @@ public class SettingsService : ISettingsService
     private static bool NormalizeSettings(AppSettings settings)
     {
         var hasChanges = false;
+        var today = DateOnly.FromDateTime(DateTime.Now);
 
         if (settings.CustomReminderSounds == null)
         {
@@ -112,6 +113,25 @@ public class SettingsService : ISettingsService
                 settings.ReminderSoundSelectionId = AppSettings.DefaultReminderSoundSelectionId;
                 hasChanges = true;
             }
+        }
+
+        if (settings.FocusTodayDate == default)
+        {
+            settings.FocusTodayDate = today;
+            hasChanges = true;
+        }
+
+        if (settings.FocusTodayCompletedSeconds < 0)
+        {
+            settings.FocusTodayCompletedSeconds = 0;
+            hasChanges = true;
+        }
+
+        if (settings.FocusTodayDate != today)
+        {
+            settings.FocusTodayDate = today;
+            settings.FocusTodayCompletedSeconds = 0;
+            hasChanges = true;
         }
 
         return hasChanges;
