@@ -335,14 +335,18 @@ public class TrayIconManager : IDisposable
             return;
         }
 
+        if (_pomodoroPopupWindow != null && _pomodoroPopupWindow.IsOpen)
+        {
+            _pomodoroPopupWindow.Close();
+        }
+
         _settingsPopupWindow?.Dispose();
         _settingsPopupWindow = new SettingsPopupWindow(
             _settingsService,
             _autoStartService,
             _systemMonitor,
             ShutdownApplication);
-        var screenPoint = System.Windows.Forms.Cursor.Position;
-        _settingsPopupWindow.ShowNearScreenPoint(screenPoint);
+        _settingsPopupWindow.ShowAtBottomRight(bottomMargin: 4);
     }
 
     /// <summary>
@@ -357,10 +361,14 @@ public class TrayIconManager : IDisposable
             return;
         }
 
+        if (_settingsPopupWindow != null && _settingsPopupWindow.IsOpen)
+        {
+            _settingsPopupWindow.Close();
+        }
+
         _pomodoroPopupWindow?.Dispose();
         _pomodoroPopupWindow = new PomodoroPopupWindow(_settingsService, _reminderService);
-        var screenPoint = System.Windows.Forms.Cursor.Position;
-        _pomodoroPopupWindow.ShowNearScreenPoint(screenPoint);
+        _pomodoroPopupWindow.ShowAtBottomRight(bottomMargin: 4);
     }
 
     /// <summary>
