@@ -63,6 +63,7 @@ public class PomodoroPopupWindow : IDisposable
     private Grid _settingsPanel = null!;
     private Border _openSettingsButton = null!;
     private Border _backButton = null!;
+    private Border _todayFocusHeaderBorder = null!;
     private TextBlock _headerTitle = null!;
     private string? _lastValidSoundSelectionId;
 
@@ -285,6 +286,45 @@ public class PomodoroPopupWindow : IDisposable
         Grid.SetColumn(_backButton, 0);
         headerGrid.Children.Add(_backButton);
 
+        _todayFocusValueText = new TextBlock
+        {
+            Text = "00:00",
+            Foreground = Brushes.White,
+            FontSize = 14,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var todayFocusLabel = new TextBlock
+        {
+            Text = "今日已专注",
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(176, 176, 182)),
+            FontSize = 12,
+            Margin = new Thickness(0, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        var todayFocusStatsPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        todayFocusStatsPanel.Children.Add(todayFocusLabel);
+        todayFocusStatsPanel.Children.Add(_todayFocusValueText);
+
+        _todayFocusHeaderBorder = new Border
+        {
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(230, 36, 37, 46)),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 6, 10, 6),
+            Margin = new Thickness(-20, -20, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Visibility = Visibility.Visible,
+            Child = todayFocusStatsPanel
+        };
+        Grid.SetColumn(_todayFocusHeaderBorder, 0);
+        headerGrid.Children.Add(_todayFocusHeaderBorder);
+
         _headerTitle = new TextBlock
         {
             Text = "番茄设置",
@@ -307,6 +347,7 @@ public class PomodoroPopupWindow : IDisposable
             LoadSettings();
             UpdateViewVisibility();
         });
+        _openSettingsButton.Margin = new Thickness(0, -20, -20, 0);
         Grid.SetColumn(_openSettingsButton, 2);
         headerGrid.Children.Add(_openSettingsButton);
 
@@ -329,7 +370,6 @@ public class PomodoroPopupWindow : IDisposable
     private Grid BuildMainPanel()
     {
         var grid = new Grid();
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -411,44 +451,6 @@ public class PomodoroPopupWindow : IDisposable
         Grid.SetRow(canvas, 0);
         grid.Children.Add(canvas);
 
-        var todayFocusStatsBorder = new Border
-        {
-            Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(125, BgLightColor.Color.R, BgLightColor.Color.G, BgLightColor.Color.B)),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(12, 8, 12, 8),
-            Margin = new Thickness(0, 0, 0, 14)
-        };
-
-        var todayFocusStatsPanel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center
-        };
-
-        var todayFocusLabel = new TextBlock
-        {
-            Text = "今日已专注",
-            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(176, 176, 182)),
-            FontSize = 12,
-            Margin = new Thickness(0, 0, 8, 0),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-
-        _todayFocusValueText = new TextBlock
-        {
-            Text = "00:00",
-            Foreground = Brushes.White,
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-
-        todayFocusStatsPanel.Children.Add(todayFocusLabel);
-        todayFocusStatsPanel.Children.Add(_todayFocusValueText);
-        todayFocusStatsBorder.Child = todayFocusStatsPanel;
-        Grid.SetRow(todayFocusStatsBorder, 1);
-        grid.Children.Add(todayFocusStatsBorder);
-
         var actionButtonsHost = new Grid
         {
             HorizontalAlignment = HorizontalAlignment.Center
@@ -490,7 +492,7 @@ public class PomodoroPopupWindow : IDisposable
 
         actionButtonsHost.Children.Add(_idleActionButtonsPanel);
         actionButtonsHost.Children.Add(_stopCurrentButtonBorder);
-        Grid.SetRow(actionButtonsHost, 2);
+        Grid.SetRow(actionButtonsHost, 1);
         grid.Children.Add(actionButtonsHost);
 
         return grid;
@@ -873,6 +875,7 @@ public class PomodoroPopupWindow : IDisposable
         _settingsPanel.Visibility = _isSettingsView ? Visibility.Visible : Visibility.Collapsed;
         _openSettingsButton.Visibility = _isSettingsView ? Visibility.Collapsed : Visibility.Visible;
         _backButton.Visibility = _isSettingsView ? Visibility.Visible : Visibility.Collapsed;
+        _todayFocusHeaderBorder.Visibility = _isSettingsView ? Visibility.Collapsed : Visibility.Visible;
         _headerTitle.Visibility = _isSettingsView ? Visibility.Visible : Visibility.Collapsed;
     }
 
