@@ -91,6 +91,7 @@ public class PomodoroPopupWindow : IDisposable
     private const double TimeDigitWidth = 26;
     private const double TimeColonWidth = 12;
     private const double TimeGlyphBoxHeight = 62;
+    private const double TimeTextVerticalOffset = -9;
 
     private static readonly SolidColorBrush TomatoColor = new(System.Windows.Media.Color.FromRgb(239, 89, 80));
     private static readonly SolidColorBrush TomatoDarkColor = new(System.Windows.Media.Color.FromRgb(200, 70, 60));
@@ -541,7 +542,7 @@ public class PomodoroPopupWindow : IDisposable
 
         timeTextHost.Children.Add(timeLayout);
 
-        Canvas.SetTop(timeTextHost, center - (TimeTextHostHeight / 2));
+        Canvas.SetTop(timeTextHost, center - (TimeTextHostHeight / 2) + TimeTextVerticalOffset);
         canvas.Children.Add(timeTextHost);
 
         Grid.SetRow(canvas, 0);
