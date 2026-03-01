@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.IO;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Forms;
@@ -19,6 +20,18 @@ namespace WangDesk.App.Services;
 /// </summary>
 public class TrayIconManager : IDisposable
 {
+    private sealed class MetricsSnapshot
+    {
+        public double CpuUsage { get; init; }
+        public double MemoryUsagePercent { get; init; }
+        public double MemoryTotalGB { get; init; }
+        public double MemoryUsedGB { get; init; }
+        public string NetworkSent { get; init; } = "0 B/s";
+        public string NetworkReceived { get; init; } = "0 B/s";
+
+        public static MetricsSnapshot Empty { get; } = new();
+    }
+
     private NotifyIcon? _notifyIcon;
     private readonly PetAnimationGenerator _animationGenerator;
     private System.Windows.Forms.Timer? _animationTimer;
@@ -36,6 +49,18 @@ public class TrayIconManager : IDisposable
     private bool _showRedIcon;
     private Icon? _normalIcon;
     private Icon? _redIcon;
+    private readonly object _metricsLock = new();
+    private MetricsSnapshot _latestMetrics = MetricsSnapshot.Empty;
+
+    private long _animationPerfCount;
+    private double _animationPerfTotalMs;
+    private double _animationPerfMaxMs;
+    private long _iconConvertPerfCount;
+    private double _iconConvertPerfTotalMs;
+    private double _iconConvertPerfMaxMs;
+    private long _tooltipPerfCount;
+    private double _tooltipPerfTotalMs;
+    private double _tooltipPerfMaxMs;
 
     public TrayIconManager(
         ISystemMonitorService systemMonitor,
@@ -249,11 +274,24 @@ public class TrayIconManager : IDisposable
     private void UpdateAnimation()
     {
         if (_isFlashing) return;
-        
+
+        var updateSw = Stopwatch.StartNew();
+        _animationGenerator.CpuUsage = GetLatestMetricsSnapshot().CpuUsage;
+
         var frame = _animationGenerator.GenerateNextFrame();
         if (frame != null)
         {
+            var convertSw = Stopwatch.StartNew();
             var newIcon = ConvertDrawingImageToIcon(frame);
+            convertSw.Stop();
+            TrackPerf(
+                "ConvertDrawingImageToIcon",
+                convertSw.Elapsed.TotalMilliseconds,
+                ref _iconConvertPerfCount,
+                ref _iconConvertPerfTotalMs,
+                ref _iconConvertPerfMaxMs,
+                interval: 120,
+                slowThresholdMs: 8);
             var oldIcon = _notifyIcon!.Icon;
             _notifyIcon.Icon = newIcon;
             
@@ -268,6 +306,16 @@ public class TrayIconManager : IDisposable
                 oldIcon.Dispose();
             }
         }
+
+        updateSw.Stop();
+        TrackPerf(
+            "UpdateAnimation",
+            updateSw.Elapsed.TotalMilliseconds,
+            ref _animationPerfCount,
+            ref _animationPerfTotalMs,
+            ref _animationPerfMaxMs,
+            interval: 120,
+            slowThresholdMs: 16);
     }
 
     /// <summary>
@@ -275,8 +323,8 @@ public class TrayIconManager : IDisposable
     /// </summary>
     private void UpdateTooltip()
     {
-        var metrics = _systemMonitor.GetMetrics();
-        var storage = _systemMonitor.GetStorageInfo();
+        var tooltipSw = Stopwatch.StartNew();
+        var metrics = GetLatestMetricsSnapshot();
         var remaining = _reminderService.GetRemainingTime();
         var modeLabel = _reminderService.CurrentMode == PomodoroMode.Break ? "休息" : "专注";
 
@@ -288,6 +336,16 @@ public class TrayIconManager : IDisposable
                       $"{modeLabel}剩余: {(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}min";
 
         _notifyIcon!.Text = tooltip.Length > 127 ? tooltip[..127] : tooltip;
+
+        tooltipSw.Stop();
+        TrackPerf(
+            "UpdateTooltip",
+            tooltipSw.Elapsed.TotalMilliseconds,
+            ref _tooltipPerfCount,
+            ref _tooltipPerfTotalMs,
+            ref _tooltipPerfMaxMs,
+            interval: 30,
+            slowThresholdMs: 4);
     }
 
     /// <summary>
@@ -295,7 +353,20 @@ public class TrayIconManager : IDisposable
     /// </summary>
     private void OnMetricsUpdated(object? sender, SystemMetrics metrics)
     {
-        _animationGenerator.CpuUsage = metrics.CpuUsage;
+        var snapshot = new MetricsSnapshot
+        {
+            CpuUsage = metrics.CpuUsage,
+            MemoryUsagePercent = metrics.MemoryUsagePercent,
+            MemoryTotalGB = metrics.MemoryTotalGB,
+            MemoryUsedGB = metrics.MemoryUsedGB,
+            NetworkSent = metrics.NetworkSent,
+            NetworkReceived = metrics.NetworkReceived
+        };
+
+        lock (_metricsLock)
+        {
+            _latestMetrics = snapshot;
+        }
     }
 
     /// <summary>
@@ -335,14 +406,18 @@ public class TrayIconManager : IDisposable
             return;
         }
 
+        if (_pomodoroPopupWindow != null && _pomodoroPopupWindow.IsOpen)
+        {
+            _pomodoroPopupWindow.Close();
+        }
+
         _settingsPopupWindow?.Dispose();
         _settingsPopupWindow = new SettingsPopupWindow(
             _settingsService,
             _autoStartService,
             _systemMonitor,
             ShutdownApplication);
-        var screenPoint = System.Windows.Forms.Cursor.Position;
-        _settingsPopupWindow.ShowNearScreenPoint(screenPoint);
+        _settingsPopupWindow.ShowAtBottomRight(bottomMargin: 4);
     }
 
     /// <summary>
@@ -357,10 +432,14 @@ public class TrayIconManager : IDisposable
             return;
         }
 
+        if (_settingsPopupWindow != null && _settingsPopupWindow.IsOpen)
+        {
+            _settingsPopupWindow.Close();
+        }
+
         _pomodoroPopupWindow?.Dispose();
         _pomodoroPopupWindow = new PomodoroPopupWindow(_settingsService, _reminderService);
-        var screenPoint = System.Windows.Forms.Cursor.Position;
-        _pomodoroPopupWindow.ShowNearScreenPoint(screenPoint);
+        _pomodoroPopupWindow.ShowAtBottomRight(bottomMargin: 4);
     }
 
     /// <summary>
@@ -390,6 +469,39 @@ public class TrayIconManager : IDisposable
     private void ShutdownApplication()
     {
         System.Windows.Application.Current.Shutdown();
+    }
+
+    private MetricsSnapshot GetLatestMetricsSnapshot()
+    {
+        lock (_metricsLock)
+        {
+            return _latestMetrics;
+        }
+    }
+
+    private static void TrackPerf(
+        string name,
+        double elapsedMs,
+        ref long count,
+        ref double totalMs,
+        ref double maxMs,
+        int interval,
+        double slowThresholdMs)
+    {
+        count++;
+        totalMs += elapsedMs;
+        maxMs = Math.Max(maxMs, elapsedMs);
+
+        if (elapsedMs >= slowThresholdMs)
+        {
+            Debug.WriteLine($"[Perf][{name}] slow {elapsedMs:F2}ms");
+        }
+
+        if (count % interval == 0)
+        {
+            var avgMs = totalMs / count;
+            Debug.WriteLine($"[Perf][{name}] samples={count} avg={avgMs:F2}ms max={maxMs:F2}ms");
+        }
     }
 
     /// <summary>

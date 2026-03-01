@@ -44,7 +44,20 @@ public class PomodoroPopupWindow : IDisposable
 
     public bool IsOpen => _popup.IsOpen && !_isClosing;
 
-    private TextBlock _timeText = null!;
+    private sealed class TimeDigitSlot
+    {
+        public TextBlock CurrentText { get; init; } = null!;
+        public TextBlock NextText { get; init; } = null!;
+        public TranslateTransform CurrentTransform { get; init; } = null!;
+        public TranslateTransform NextTransform { get; init; } = null!;
+        public char CurrentChar { get; set; }
+        public char TargetChar { get; set; }
+        public bool IsAnimating { get; set; }
+    }
+
+    private readonly TimeDigitSlot[] _timeDigitSlots = new TimeDigitSlot[4];
+    private string _displayedTimeText = string.Empty;
+    private int? _displayedTimeSeconds;
     private TextBlock _todayFocusLabelText = null!;
     private TextBlock _todayFocusValueText = null!;
     private TextBlock _todayFocusHintText = null!;
@@ -66,14 +79,19 @@ public class PomodoroPopupWindow : IDisposable
     private Border _openSettingsButton = null!;
     private Border _backButton = null!;
     private Border _todayFocusHeaderBorder = null!;
-    private ScaleTransform _todayFocusHeaderScaleTransform = null!;
-    private TranslateTransform _todayFocusHeaderTranslateTransform = null!;
+    private ScaleTransform _todayFocusValueScaleTransform = null!;
     private TextBlock _headerTitle = null!;
     private string? _lastValidSoundSelectionId;
 
     private const double CanvasSize = 170;
     private const double RingRadius = 65;
     private const double RingThickness = 6;
+    private const double TimeTextHostHeight = RingRadius * 2;
+    private const double TimeTextScrollOffset = 5;
+    private const double TimeDigitWidth = 26;
+    private const double TimeColonWidth = 12;
+    private const double TimeGlyphBoxHeight = 62;
+    private const double TimeTextVerticalOffset = -9;
 
     private static readonly SolidColorBrush TomatoColor = new(System.Windows.Media.Color.FromRgb(239, 89, 80));
     private static readonly SolidColorBrush TomatoDarkColor = new(System.Windows.Media.Color.FromRgb(200, 70, 60));
@@ -130,11 +148,42 @@ public class PomodoroPopupWindow : IDisposable
         LoadSettings();
         ResetOutsideClickState();
         StartAutoCloseGracePeriod();
+        _popup.Placement = PlacementMode.AbsolutePoint;
         _popup.PlacementRectangle = new Rect(
             screenPoint.X - 140,
             screenPoint.Y - 10,
             280, 0);
         _popup.IsOpen = true;
+        _uiTimer?.Start();
+        _closeTimer?.Start();
+        UpdateDisplay();
+        PlayOpenAnimation();
+    }
+
+    public void ShowAtBottomRight(double rightMargin = 16, double bottomMargin = 16)
+    {
+        _mouseHasEntered = false;
+        _isClosing = false;
+        _isSettingsView = false;
+        UpdateViewVisibility();
+        LoadSettings();
+        ResetOutsideClickState();
+        StartAutoCloseGracePeriod();
+
+        var workArea = SystemParameters.WorkArea;
+        _rootBorder?.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+
+        var popupWidth = _rootBorder?.DesiredSize.Width > 0 ? _rootBorder.DesiredSize.Width : (_rootBorder?.Width ?? 380);
+        var popupHeight = _rootBorder?.DesiredSize.Height > 0 ? _rootBorder.DesiredSize.Height : 520;
+
+        var x = Math.Max(workArea.Left, workArea.Right - popupWidth - rightMargin);
+        var y = Math.Max(workArea.Top, workArea.Bottom - popupHeight - bottomMargin);
+
+        _popup.Placement = PlacementMode.Absolute;
+        _popup.HorizontalOffset = x;
+        _popup.VerticalOffset = y;
+        _popup.IsOpen = true;
+
         _uiTimer?.Start();
         _closeTimer?.Start();
         UpdateDisplay();
@@ -298,6 +347,11 @@ public class PomodoroPopupWindow : IDisposable
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
         };
+        _todayFocusValueScaleTransform = new ScaleTransform(1, 1);
+        _todayFocusValueText.RenderTransform = _todayFocusValueScaleTransform;
+        _todayFocusValueText.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
+        _todayFocusValueText.MouseEnter += (s, e) => AnimateTodayFocusHeader(hovered: true);
+        _todayFocusValueText.MouseLeave += (s, e) => AnimateTodayFocusHeader(hovered: false);
 
         _todayFocusLabelText = new TextBlock
         {
@@ -335,12 +389,6 @@ public class PomodoroPopupWindow : IDisposable
         todayFocusStatsPanel.Children.Add(todayFocusSummaryRow);
         todayFocusStatsPanel.Children.Add(_todayFocusHintText);
 
-        _todayFocusHeaderScaleTransform = new ScaleTransform(1, 1);
-        _todayFocusHeaderTranslateTransform = new TranslateTransform(0, 0);
-        var todayFocusHeaderTransformGroup = new TransformGroup();
-        todayFocusHeaderTransformGroup.Children.Add(_todayFocusHeaderScaleTransform);
-        todayFocusHeaderTransformGroup.Children.Add(_todayFocusHeaderTranslateTransform);
-
         _todayFocusHeaderBorder = new Border
         {
             Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(230, 36, 37, 46)),
@@ -348,13 +396,9 @@ public class PomodoroPopupWindow : IDisposable
             Padding = new Thickness(10, 6, 10, 6),
             Margin = new Thickness(-20, -20, 0, 0),
             HorizontalAlignment = HorizontalAlignment.Left,
-            RenderTransform = todayFocusHeaderTransformGroup,
-            RenderTransformOrigin = new System.Windows.Point(0, 0),
             Visibility = Visibility.Visible,
             Child = todayFocusStatsPanel
         };
-        _todayFocusHeaderBorder.MouseEnter += (s, e) => AnimateTodayFocusHeader(hovered: true);
-        _todayFocusHeaderBorder.MouseLeave += (s, e) => AnimateTodayFocusHeader(hovered: false);
         Grid.SetColumn(_todayFocusHeaderBorder, 0);
         headerGrid.Children.Add(_todayFocusHeaderBorder);
 
@@ -470,16 +514,36 @@ public class PomodoroPopupWindow : IDisposable
         };
         canvas.Children.Add(_progressPath);
 
-        _timeText = new TextBlock
+        var timeTextHost = new Grid
         {
-            Foreground = Brushes.White,
-            FontSize = 36,
-            FontWeight = FontWeights.Bold,
             Width = CanvasSize,
-            TextAlignment = TextAlignment.Center
+            Height = TimeTextHostHeight,
+            ClipToBounds = true,
+            IsHitTestVisible = false
         };
-        Canvas.SetTop(_timeText, center - 18);
-        canvas.Children.Add(_timeText);
+
+        var timeLayout = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        _timeDigitSlots[0] = CreateTimeDigitSlot();
+        _timeDigitSlots[1] = CreateTimeDigitSlot();
+        _timeDigitSlots[2] = CreateTimeDigitSlot();
+        _timeDigitSlots[3] = CreateTimeDigitSlot();
+
+        timeLayout.Children.Add(CreateTimeDigitSlotHost(_timeDigitSlots[0]));
+        timeLayout.Children.Add(CreateTimeDigitSlotHost(_timeDigitSlots[1]));
+        timeLayout.Children.Add(CreateTimeColonText());
+        timeLayout.Children.Add(CreateTimeDigitSlotHost(_timeDigitSlots[2]));
+        timeLayout.Children.Add(CreateTimeDigitSlotHost(_timeDigitSlots[3]));
+
+        timeTextHost.Children.Add(timeLayout);
+
+        Canvas.SetTop(timeTextHost, center - (TimeTextHostHeight / 2) + TimeTextVerticalOffset);
+        canvas.Children.Add(timeTextHost);
 
         Grid.SetRow(canvas, 0);
         grid.Children.Add(canvas);
@@ -657,6 +721,86 @@ public class PomodoroPopupWindow : IDisposable
         grid.Children.Add(hintText);
 
         return grid;
+    }
+
+    private static TimeDigitSlot CreateTimeDigitSlot()
+    {
+        var currentTransform = new TranslateTransform(0, 0);
+        var nextTransform = new TranslateTransform(0, TimeTextScrollOffset);
+        var currentText = CreateCenterTimerText();
+        currentText.RenderTransform = currentTransform;
+        currentText.Opacity = 1;
+
+        var nextText = CreateCenterTimerText();
+        nextText.RenderTransform = nextTransform;
+        nextText.Text = string.Empty;
+        nextText.Opacity = 0;
+
+        return new TimeDigitSlot
+        {
+            CurrentText = currentText,
+            NextText = nextText,
+            CurrentTransform = currentTransform,
+            NextTransform = nextTransform,
+            CurrentChar = '0',
+            TargetChar = '0',
+            IsAnimating = false
+        };
+    }
+
+    private static Grid CreateTimeDigitSlotHost(TimeDigitSlot slot)
+    {
+        var host = new Grid
+        {
+            Width = TimeDigitWidth,
+            Height = TimeGlyphBoxHeight,
+            VerticalAlignment = VerticalAlignment.Center,
+            ClipToBounds = true
+        };
+        host.Children.Add(slot.CurrentText);
+        host.Children.Add(slot.NextText);
+        return host;
+    }
+
+    private static TextBlock CreateTimeColonText()
+    {
+        var text = new TextBlock
+        {
+            Text = ":",
+            Foreground = Brushes.White,
+            FontSize = 36,
+            FontWeight = FontWeights.Bold,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+            Width = TimeColonWidth,
+            Height = TimeGlyphBoxHeight,
+            LineHeight = TimeGlyphBoxHeight,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            TextAlignment = TextAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        text.Typography.NumeralAlignment = FontNumeralAlignment.Tabular;
+        text.Typography.NumeralStyle = FontNumeralStyle.Lining;
+        return text;
+    }
+
+    private static TextBlock CreateCenterTimerText()
+    {
+        var text = new TextBlock
+        {
+            Foreground = Brushes.White,
+            FontSize = 36,
+            FontWeight = FontWeights.Bold,
+            FontFamily = new System.Windows.Media.FontFamily("Segoe UI"),
+            Width = TimeDigitWidth,
+            Height = TimeGlyphBoxHeight,
+            LineHeight = TimeGlyphBoxHeight,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+            TextAlignment = TextAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        text.Typography.NumeralAlignment = FontNumeralAlignment.Tabular;
+        text.Typography.NumeralStyle = FontNumeralStyle.Lining;
+        return text;
     }
 
     private static Border CreateIconButton(string icon, Action onClick)
@@ -918,18 +1062,14 @@ public class PomodoroPopupWindow : IDisposable
 
     private void AnimateTodayFocusHeader(bool hovered)
     {
-        if (_todayFocusHeaderScaleTransform == null ||
-            _todayFocusHeaderTranslateTransform == null ||
-            _todayFocusHintText == null ||
-            _todayFocusLabelText == null ||
-            _todayFocusValueText == null)
+        if (_todayFocusValueScaleTransform == null ||
+            _todayFocusHintText == null)
         {
             return;
         }
 
-        var duration = TimeSpan.FromMilliseconds(240);
-        var scaleTarget = hovered ? 1.1 : 1.0;
-        var translateTarget = hovered ? 2.5 : 0.0;
+        var duration = TimeSpan.FromMilliseconds(180);
+        var scaleTarget = hovered ? 1.12 : 1.0;
         var easing = new CubicEase
         {
             EasingMode = hovered ? EasingMode.EaseOut : EasingMode.EaseIn
@@ -940,71 +1080,20 @@ public class PomodoroPopupWindow : IDisposable
             EasingFunction = easing
         };
 
-        _todayFocusHeaderScaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, scaleAnimation);
-        _todayFocusHeaderScaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnimation);
-
-        var translateAnimation = new DoubleAnimation(translateTarget, duration)
-        {
-            EasingFunction = easing
-        };
-        _todayFocusHeaderTranslateTransform.BeginAnimation(TranslateTransform.XProperty, translateAnimation);
-        _todayFocusHeaderTranslateTransform.BeginAnimation(TranslateTransform.YProperty, translateAnimation);
-
-        var labelSizeAnimation = new DoubleAnimation(hovered ? 13 : 12, duration)
-        {
-            EasingFunction = easing
-        };
-        _todayFocusLabelText.BeginAnimation(TextBlock.FontSizeProperty, labelSizeAnimation);
-
-        var valueSizeAnimation = new DoubleAnimation(hovered ? 15.5 : 14, duration)
-        {
-            EasingFunction = easing
-        };
-        _todayFocusValueText.BeginAnimation(TextBlock.FontSizeProperty, valueSizeAnimation);
-
-        if (hovered)
-        {
-            _todayFocusHintText.Visibility = Visibility.Visible;
-        }
-
-        var hintOpacityAnimation = new DoubleAnimation(hovered ? 1 : 0, duration)
-        {
-            EasingFunction = easing
-        };
-        _todayFocusHintText.BeginAnimation(UIElement.OpacityProperty, hintOpacityAnimation);
-
-        var hintHeightAnimation = new DoubleAnimation(hovered ? 16 : 0, duration)
-        {
-            EasingFunction = easing
-        };
-        if (!hovered)
-        {
-            hintHeightAnimation.Completed += (s, e) =>
-            {
-                _todayFocusHintText.Visibility = Visibility.Collapsed;
-            };
-        }
-
-        _todayFocusHintText.BeginAnimation(FrameworkElement.MaxHeightProperty, hintHeightAnimation);
+        _todayFocusValueScaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, scaleAnimation);
+        _todayFocusValueScaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnimation);
+        _todayFocusHintText.Visibility = Visibility.Collapsed;
     }
 
     private void ResetTodayFocusHeaderVisualState()
     {
-        _todayFocusHeaderScaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-        _todayFocusHeaderScaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-        _todayFocusHeaderTranslateTransform.BeginAnimation(TranslateTransform.XProperty, null);
-        _todayFocusHeaderTranslateTransform.BeginAnimation(TranslateTransform.YProperty, null);
-        _todayFocusLabelText.BeginAnimation(TextBlock.FontSizeProperty, null);
-        _todayFocusValueText.BeginAnimation(TextBlock.FontSizeProperty, null);
+        _todayFocusValueScaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        _todayFocusValueScaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         _todayFocusHintText.BeginAnimation(UIElement.OpacityProperty, null);
         _todayFocusHintText.BeginAnimation(FrameworkElement.MaxHeightProperty, null);
 
-        _todayFocusHeaderScaleTransform.ScaleX = 1;
-        _todayFocusHeaderScaleTransform.ScaleY = 1;
-        _todayFocusHeaderTranslateTransform.X = 0;
-        _todayFocusHeaderTranslateTransform.Y = 0;
-        _todayFocusLabelText.FontSize = 12;
-        _todayFocusValueText.FontSize = 14;
+        _todayFocusValueScaleTransform.ScaleX = 1;
+        _todayFocusValueScaleTransform.ScaleY = 1;
         _todayFocusHintText.Opacity = 0;
         _todayFocusHintText.MaxHeight = 0;
         _todayFocusHintText.Visibility = Visibility.Collapsed;
@@ -1465,10 +1554,210 @@ public class PomodoroPopupWindow : IDisposable
         UpdateDisplay();
     }
 
+    private void UpdateCenterTimeText(string newText)
+    {
+        var normalizedText = NormalizeTimeText(newText);
+        if (string.Equals(_displayedTimeText, normalizedText, StringComparison.Ordinal))
+        {
+            EnsureCenterTimeTextVisualState(normalizedText);
+            return;
+        }
+
+        if (!TryParseTimeTextToSeconds(normalizedText, out var nextSeconds))
+        {
+            nextSeconds = 0;
+        }
+
+        if (string.IsNullOrEmpty(_displayedTimeText) || !_popup.IsOpen)
+        {
+            ApplyCenterTimeTextImmediately(normalizedText);
+            return;
+        }
+
+        // If value jumped (e.g. popup reopened after a while), snap directly to avoid heavy overlap.
+        if (_displayedTimeSeconds.HasValue &&
+            Math.Abs(_displayedTimeSeconds.Value - nextSeconds) > 1)
+        {
+            ApplyCenterTimeTextImmediately(normalizedText);
+            return;
+        }
+
+        AnimateCenterTimeText(normalizedText);
+        _displayedTimeText = normalizedText;
+        _displayedTimeSeconds = nextSeconds;
+    }
+
+    private void EnsureCenterTimeTextVisualState(string text)
+    {
+        if (text.Length != 5)
+        {
+            return;
+        }
+
+        var expectedDigits = new[] { text[0], text[1], text[3], text[4] };
+        for (var i = 0; i < _timeDigitSlots.Length; i++)
+        {
+            var slot = _timeDigitSlots[i];
+            if (slot.IsAnimating ||
+                slot.CurrentChar != expectedDigits[i] ||
+                slot.CurrentText.Text != expectedDigits[i].ToString() ||
+                slot.CurrentText.Opacity < 0.98 ||
+                Math.Abs(slot.CurrentTransform.Y) > 0.01 ||
+                slot.NextText.Opacity > 0.02)
+            {
+                ApplyCenterTimeTextImmediately(text);
+                return;
+            }
+        }
+    }
+
+    private static string NormalizeTimeText(string text)
+    {
+        if (!string.IsNullOrWhiteSpace(text) && text.Length == 5 && text[2] == ':')
+        {
+            return text;
+        }
+
+        return "00:00";
+    }
+
+    private static bool TryParseTimeTextToSeconds(string text, out int totalSeconds)
+    {
+        totalSeconds = 0;
+        if (string.IsNullOrWhiteSpace(text) || text.Length != 5 || text[2] != ':')
+        {
+            return false;
+        }
+
+        if (!int.TryParse(text[..2], out var minutes) || !int.TryParse(text[3..], out var seconds))
+        {
+            return false;
+        }
+
+        if (minutes < 0 || seconds < 0 || seconds > 59)
+        {
+            return false;
+        }
+
+        totalSeconds = minutes * 60 + seconds;
+        return true;
+    }
+
+    private void ApplyCenterTimeTextImmediately(string text)
+    {
+        SetDigitSlotTextImmediately(_timeDigitSlots[0], text[0]);
+        SetDigitSlotTextImmediately(_timeDigitSlots[1], text[1]);
+        SetDigitSlotTextImmediately(_timeDigitSlots[2], text[3]);
+        SetDigitSlotTextImmediately(_timeDigitSlots[3], text[4]);
+
+        _displayedTimeText = text;
+        if (TryParseTimeTextToSeconds(text, out var seconds))
+        {
+            _displayedTimeSeconds = seconds;
+        }
+        else
+        {
+            _displayedTimeSeconds = 0;
+        }
+    }
+
+    private void AnimateCenterTimeText(string newText)
+    {
+        AnimateDigitSlot(_timeDigitSlots[0], newText[0]);
+        AnimateDigitSlot(_timeDigitSlots[1], newText[1]);
+        AnimateDigitSlot(_timeDigitSlots[2], newText[3]);
+        AnimateDigitSlot(_timeDigitSlots[3], newText[4]);
+    }
+
+    private static void SetDigitSlotTextImmediately(TimeDigitSlot slot, char value)
+    {
+        slot.CurrentTransform.BeginAnimation(TranslateTransform.YProperty, null);
+        slot.NextTransform.BeginAnimation(TranslateTransform.YProperty, null);
+        slot.CurrentText.BeginAnimation(UIElement.OpacityProperty, null);
+        slot.NextText.BeginAnimation(UIElement.OpacityProperty, null);
+        slot.CurrentTransform.Y = 0;
+        slot.NextTransform.Y = TimeTextScrollOffset;
+        slot.CurrentText.Opacity = 1;
+        slot.NextText.Opacity = 0;
+        slot.CurrentText.Text = value.ToString();
+        slot.NextText.Text = string.Empty;
+        slot.CurrentChar = value;
+        slot.TargetChar = value;
+        slot.IsAnimating = false;
+    }
+
+    private void AnimateDigitSlot(TimeDigitSlot slot, char newValue)
+    {
+        if (slot.CurrentChar == newValue && !slot.IsAnimating)
+        {
+            return;
+        }
+
+        if (slot.IsAnimating)
+        {
+            if (slot.TargetChar == newValue)
+            {
+                return;
+            }
+
+            SetDigitSlotTextImmediately(slot, slot.TargetChar);
+        }
+
+        slot.CurrentTransform.BeginAnimation(TranslateTransform.YProperty, null);
+        slot.NextTransform.BeginAnimation(TranslateTransform.YProperty, null);
+        slot.CurrentText.BeginAnimation(UIElement.OpacityProperty, null);
+        slot.NextText.BeginAnimation(UIElement.OpacityProperty, null);
+
+        slot.IsAnimating = true;
+        slot.TargetChar = newValue;
+        slot.NextText.Text = newValue.ToString();
+        slot.NextTransform.Y = TimeTextScrollOffset;
+        slot.NextText.Opacity = 0;
+
+        var duration = TimeSpan.FromMilliseconds(130);
+        var easingOut = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var easingIn = new CubicEase { EasingMode = EasingMode.EaseIn };
+
+        var currentMoveAnimation = new DoubleAnimation(0, -TimeTextScrollOffset, duration)
+        {
+            EasingFunction = easingIn
+        };
+        var nextMoveAnimation = new DoubleAnimation(TimeTextScrollOffset, 0, duration)
+        {
+            EasingFunction = easingOut
+        };
+        var currentFadeAnimation = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(90))
+        {
+            EasingFunction = easingIn
+        };
+        var nextFadeAnimation = new DoubleAnimation(0, 1, duration)
+        {
+            EasingFunction = easingOut
+        };
+
+        nextMoveAnimation.Completed += (s, e) =>
+        {
+            slot.CurrentText.Text = slot.TargetChar.ToString();
+            slot.CurrentTransform.Y = 0;
+            slot.CurrentText.Opacity = 1;
+            slot.NextText.Text = string.Empty;
+            slot.NextTransform.Y = TimeTextScrollOffset;
+            slot.NextText.Opacity = 0;
+            slot.CurrentChar = slot.TargetChar;
+            slot.IsAnimating = false;
+        };
+
+        slot.CurrentTransform.BeginAnimation(TranslateTransform.YProperty, currentMoveAnimation);
+        slot.NextTransform.BeginAnimation(TranslateTransform.YProperty, nextMoveAnimation);
+        slot.CurrentText.BeginAnimation(UIElement.OpacityProperty, currentFadeAnimation);
+        slot.NextText.BeginAnimation(UIElement.OpacityProperty, nextFadeAnimation);
+    }
+
     private void UpdateDisplay()
     {
         var remaining = _reminderService.GetRemainingTime();
-        _timeText.Text = $"{(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}";
+        var timeText = $"{(int)remaining.TotalMinutes:00}:{remaining.Seconds:00}";
+        UpdateCenterTimeText(timeText);
         UpdateProgress(remaining);
         UpdateTodayFocusTotalDisplay();
 

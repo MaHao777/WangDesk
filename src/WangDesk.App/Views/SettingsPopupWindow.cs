@@ -46,6 +46,7 @@ public class SettingsPopupWindow : IDisposable
     private TextBlock? _netUpText;
     private TextBlock? _netDownText;
     private StackPanel? _drivePanel;
+    private static List<StorageInfo> _lastStorageSnapshot = new();
 
     private static readonly SolidColorBrush AccentColor = new(Color.FromRgb(239, 89, 80));
     private static readonly SolidColorBrush AccentHoverColor = new(Color.FromRgb(255, 110, 100));
@@ -99,6 +100,7 @@ public class SettingsPopupWindow : IDisposable
         _mouseHasEntered = false;
         _isClosing = false;
         ResetOutsideClickState();
+        _popup.Placement = PlacementMode.AbsolutePoint;
         _popup.PlacementRectangle = new Rect(
             screenPoint.X - 110,
             screenPoint.Y - 10,
@@ -108,6 +110,34 @@ public class SettingsPopupWindow : IDisposable
         _refreshTimer?.Start();
         LoadSettings();
         RefreshSystemStatus();
+        PlayOpenAnimation();
+    }
+
+    public void ShowAtBottomRight(double rightMargin = 16, double bottomMargin = 16)
+    {
+        _mouseHasEntered = false;
+        _isClosing = false;
+        ResetOutsideClickState();
+
+        LoadSettings();
+        RefreshSystemStatus(forceWhenClosed: true);
+
+        var workArea = SystemParameters.WorkArea;
+        _rootBorder?.Measure(new System.Windows.Size(double.PositiveInfinity, double.PositiveInfinity));
+
+        var popupWidth = _rootBorder?.DesiredSize.Width > 0 ? _rootBorder.DesiredSize.Width : (_rootBorder?.Width ?? 320);
+        var popupHeight = _rootBorder?.DesiredSize.Height > 0 ? _rootBorder.DesiredSize.Height : 480;
+
+        var x = Math.Max(workArea.Left, workArea.Right - popupWidth - rightMargin);
+        var y = Math.Max(workArea.Top, workArea.Bottom - popupHeight - bottomMargin);
+
+        _popup.Placement = PlacementMode.Absolute;
+        _popup.HorizontalOffset = x;
+        _popup.VerticalOffset = y;
+        _popup.IsOpen = true;
+
+        _closeTimer?.Start();
+        _refreshTimer?.Start();
         PlayOpenAnimation();
     }
 
@@ -565,12 +595,32 @@ public class SettingsPopupWindow : IDisposable
     /// <summary>
     /// 刷新系统状态显示
     /// </summary>
-    private void RefreshSystemStatus()
+    private void RefreshSystemStatus(bool forceWhenClosed = false)
     {
-        if (!_popup.IsOpen) return;
+        if (!forceWhenClosed && !_popup.IsOpen) return;
 
         var metrics = _systemMonitor.GetMetrics();
         var storage = _systemMonitor.GetStorageInfo();
+        var storageToRender = storage;
+
+        if (storageToRender.Count == 0 && _lastStorageSnapshot.Count > 0)
+        {
+            storageToRender = _lastStorageSnapshot;
+        }
+        else if (storageToRender.Count > 0)
+        {
+            _lastStorageSnapshot = storageToRender
+                .Select(static drive => new StorageInfo
+                {
+                    DriveLetter = drive.DriveLetter,
+                    DriveName = drive.DriveName,
+                    UsagePercent = drive.UsagePercent,
+                    UsedGB = drive.UsedGB,
+                    AvailableGB = drive.AvailableGB,
+                    TotalGB = drive.TotalGB
+                })
+                .ToList();
+        }
 
         // CPU
         if (_cpuValueText != null && _cpuBar != null)
@@ -611,15 +661,24 @@ public class SettingsPopupWindow : IDisposable
         if (_netDownText != null) _netDownText.Text = $"↓ {metrics.NetworkReceived}";
 
         // 磁盘（保留第一个子元素标签，更新后面的）
-        if (_drivePanel != null && storage.Count > 0)
-        {
-            while (_drivePanel.Children.Count > 1)
-                _drivePanel.Children.RemoveAt(_drivePanel.Children.Count - 1);
+        RenderDriveRows(storageToRender);
+    }
 
-            foreach (var drive in storage)
-            {
-                _drivePanel.Children.Add(CreateDriveRow(drive));
-            }
+    private void RenderDriveRows(List<StorageInfo> storage)
+    {
+        if (_drivePanel == null || storage.Count == 0)
+        {
+            return;
+        }
+
+        while (_drivePanel.Children.Count > 1)
+        {
+            _drivePanel.Children.RemoveAt(_drivePanel.Children.Count - 1);
+        }
+
+        foreach (var drive in storage)
+        {
+            _drivePanel.Children.Add(CreateDriveRow(drive));
         }
     }
 
