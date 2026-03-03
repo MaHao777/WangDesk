@@ -7,6 +7,10 @@
   <img src="src/WangDesk.App/assets/app.png" alt="WangDesk 应用图标" width="160" />
 </p>
 
+## 开发目的
+
+本项目让那些在外工作或者学习的用户可以实时在电脑桌面上看到自家宠物的可爱卡通形象（目前只有泰迪狗的形象），同时提供番茄钟和系统状态查询等功能来让该程序兼具一些实用功能。
+
 ## 功能
 
 - 托盘小狗动画速度随 CPU 使用率变化
@@ -42,3 +46,9 @@ dotnet publish src/WangDesk.App/WangDesk.App.csproj -c Release -r win-x64 --self
 应用设置保存于：
 
 `%AppData%\WangDesk\settings.json`
+
+## 演示图片
+
+<p align="center">
+  <img src="docs/image.png" alt="WangDesk 演示图片" width="150" />
+</p>
