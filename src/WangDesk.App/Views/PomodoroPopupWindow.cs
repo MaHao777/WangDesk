@@ -55,6 +55,15 @@ public class PomodoroPopupWindow : IDisposable
         public bool IsAnimating { get; set; }
     }
 
+    private sealed class ActionButtonParts
+    {
+        public Grid Host { get; init; } = null!;
+        public Grid Content { get; init; } = null!;
+        public Border ShadowChrome { get; init; } = null!;
+        public Border Chrome { get; init; } = null!;
+        public TextBlock Label { get; init; } = null!;
+    }
+
     private readonly TimeDigitSlot[] _timeDigitSlots = new TimeDigitSlot[4];
     private string _displayedTimeText = string.Empty;
     private int? _displayedTimeSeconds;
@@ -70,14 +79,14 @@ public class PomodoroPopupWindow : IDisposable
     private WpfButton _addCustomSoundButton = null!;
     private WpfButton _removeCustomSoundButton = null!;
     private StackPanel _idleActionButtonsPanel = null!;
-    private Border _startFocusButtonBorder = null!;
-    private Border _startBreakButtonBorder = null!;
-    private Border _stopCurrentButtonBorder = null!;
-    private TextBlock _stopCurrentButtonText = null!;
+    private ActionButtonParts _startFocusButton = null!;
+    private ActionButtonParts _startBreakButton = null!;
+    private ActionButtonParts _stopCurrentButton = null!;
     private Grid _mainPanel = null!;
     private Grid _settingsPanel = null!;
     private Border _openSettingsButton = null!;
     private Border _backButton = null!;
+    private Grid _timerCanvasHost = null!;
     private Border _todayFocusHeaderBorder = null!;
     private ScaleTransform _todayFocusValueScaleTransform = null!;
     private TextBlock _headerTitle = null!;
@@ -92,6 +101,17 @@ public class PomodoroPopupWindow : IDisposable
     private const double TimeColonWidth = 12;
     private const double TimeGlyphBoxHeight = 62;
     private const double TimeTextVerticalOffset = -9;
+    private const double DefaultInteractiveScale = 1.0;
+    private const double ActionButtonHeight = 40;
+    private const double ActionButtonFontSize = 14;
+    private const double ActionButtonHoverScale = 1.04;
+    private const double ActionButtonPressedScale = 0.98;
+    private const double IconButtonHoverScale = 1.10;
+    private const double IconButtonPressedScale = 0.96;
+    private const double TimerHoverScale = 1.02;
+    private const int HoverAnimationDurationMs = 160;
+    private const int LeaveAnimationDurationMs = 120;
+    private const int PressAnimationDurationMs = 80;
 
     private static readonly SolidColorBrush TomatoColor = new(System.Windows.Media.Color.FromRgb(239, 89, 80));
     private static readonly SolidColorBrush TomatoDarkColor = new(System.Windows.Media.Color.FromRgb(200, 70, 60));
@@ -145,6 +165,7 @@ public class PomodoroPopupWindow : IDisposable
         _isClosing = false;
         _isSettingsView = false;
         UpdateViewVisibility();
+        ResetInteractiveScaleStates();
         LoadSettings();
         ResetOutsideClickState();
         StartAutoCloseGracePeriod();
@@ -166,6 +187,7 @@ public class PomodoroPopupWindow : IDisposable
         _isClosing = false;
         _isSettingsView = false;
         UpdateViewVisibility();
+        ResetInteractiveScaleStates();
         LoadSettings();
         ResetOutsideClickState();
         StartAutoCloseGracePeriod();
@@ -454,7 +476,6 @@ public class PomodoroPopupWindow : IDisposable
         {
             Width = CanvasSize,
             Height = CanvasSize,
-            Margin = new Thickness(0, 4, 0, 16),
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
@@ -545,8 +566,19 @@ public class PomodoroPopupWindow : IDisposable
         Canvas.SetTop(timeTextHost, center - (TimeTextHostHeight / 2) + TimeTextVerticalOffset);
         canvas.Children.Add(timeTextHost);
 
-        Grid.SetRow(canvas, 0);
-        grid.Children.Add(canvas);
+        _timerCanvasHost = new Grid
+        {
+            Width = CanvasSize,
+            Height = CanvasSize,
+            Background = Brushes.Transparent,
+            Margin = new Thickness(0, 4, 0, 16),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        ConfigureHoverScaleInteractions(_timerCanvasHost, TimerHoverScale);
+        _timerCanvasHost.Children.Add(canvas);
+
+        Grid.SetRow(_timerCanvasHost, 0);
+        grid.Children.Add(_timerCanvasHost);
 
         var actionButtonsHost = new Grid
         {
@@ -559,36 +591,35 @@ public class PomodoroPopupWindow : IDisposable
             HorizontalAlignment = HorizontalAlignment.Center
         };
 
-        _startFocusButtonBorder = CreateActionButton("开始专注", 104);
-        _startFocusButtonBorder.Margin = new Thickness(0, 0, 10, 0);
+        _startFocusButton = CreateActionButton("开始专注", 104);
+        _startFocusButton.Host.Margin = new Thickness(0, 0, 10, 0);
         ConfigureActionButtonInteractions(
-            _startFocusButtonBorder,
+            _startFocusButton,
             () => GetButtonBaseColor(isRunning: false, isBreakMode: false),
             () => GetButtonHoverColor(isRunning: false, isBreakMode: false),
             () => GetButtonPressedColor(isRunning: false, isBreakMode: false),
             OnStartFocusClick);
-        _idleActionButtonsPanel.Children.Add(_startFocusButtonBorder);
+        _idleActionButtonsPanel.Children.Add(_startFocusButton.Host);
 
-        _startBreakButtonBorder = CreateActionButton("开始休息", 104);
+        _startBreakButton = CreateActionButton("开始休息", 104);
         ConfigureActionButtonInteractions(
-            _startBreakButtonBorder,
+            _startBreakButton,
             () => GetButtonBaseColor(isRunning: false, isBreakMode: true),
             () => GetButtonHoverColor(isRunning: false, isBreakMode: true),
             () => GetButtonPressedColor(isRunning: false, isBreakMode: true),
             OnStartBreakClick);
-        _idleActionButtonsPanel.Children.Add(_startBreakButtonBorder);
+        _idleActionButtonsPanel.Children.Add(_startBreakButton.Host);
 
-        _stopCurrentButtonText = CreateActionButtonText("结束专注");
-        _stopCurrentButtonBorder = CreateActionButtonBorder(_stopCurrentButtonText, 140);
+        _stopCurrentButton = CreateActionButton("结束专注", 140);
         ConfigureActionButtonInteractions(
-            _stopCurrentButtonBorder,
+            _stopCurrentButton,
             () => GetButtonBaseColor(isRunning: true, isBreakMode: _reminderService.CurrentMode == PomodoroMode.Break),
             () => GetButtonHoverColor(isRunning: true, isBreakMode: _reminderService.CurrentMode == PomodoroMode.Break),
             () => GetButtonPressedColor(isRunning: true, isBreakMode: _reminderService.CurrentMode == PomodoroMode.Break),
             OnStopCurrentClick);
 
         actionButtonsHost.Children.Add(_idleActionButtonsPanel);
-        actionButtonsHost.Children.Add(_stopCurrentButtonBorder);
+        actionButtonsHost.Children.Add(_stopCurrentButton.Host);
         Grid.SetRow(actionButtonsHost, 1);
         grid.Children.Add(actionButtonsHost);
 
@@ -821,6 +852,8 @@ public class PomodoroPopupWindow : IDisposable
             CornerRadius = new CornerRadius(14),
             Background = Brushes.Transparent,
             Cursor = Cursors.Hand,
+            RenderTransform = new ScaleTransform(DefaultInteractiveScale, DefaultInteractiveScale),
+            RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
             Child = text
         };
 
@@ -833,6 +866,10 @@ public class PomodoroPopupWindow : IDisposable
             button.Background = Brushes.Transparent;
         };
         button.MouseLeftButtonUp += (s, e) => onClick();
+        ConfigureHoverScaleInteractions(
+            button,
+            IconButtonHoverScale,
+            pressedScale: IconButtonPressedScale);
 
         return button;
     }
@@ -855,26 +892,32 @@ public class PomodoroPopupWindow : IDisposable
 
     private static TextBlock CreateActionButtonText(string text)
     {
-        return new TextBlock
+        var textBlock = new TextBlock
         {
             Text = text,
             Foreground = Brushes.White,
-            FontSize = 14,
+            FontSize = ActionButtonFontSize,
             FontWeight = FontWeights.SemiBold,
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            UseLayoutRounding = true,
+            IsHitTestVisible = false
         };
+        TextOptions.SetTextFormattingMode(textBlock, TextFormattingMode.Display);
+        return textBlock;
     }
 
-    private static Border CreateActionButtonBorder(TextBlock textBlock, double width)
+    private static Border CreateActionButtonShadowChrome(double width)
     {
         return new Border
         {
             Width = width,
-            Height = 40,
+            Height = ActionButtonHeight,
             CornerRadius = new CornerRadius(20),
-            Cursor = Cursors.Hand,
-            Child = textBlock,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
             Effect = new DropShadowEffect
             {
                 BlurRadius = 12,
@@ -884,37 +927,206 @@ public class PomodoroPopupWindow : IDisposable
         };
     }
 
-    private static Border CreateActionButton(string text, double width)
+    private static Border CreateActionButtonChrome(double width)
     {
-        return CreateActionButtonBorder(CreateActionButtonText(text), width);
+        return new Border
+        {
+            Width = width,
+            Height = ActionButtonHeight,
+            CornerRadius = new CornerRadius(20),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false
+        };
     }
 
-    private static void ApplyActionButtonColor(Border button, System.Windows.Media.Color color)
+    private static ActionButtonParts CreateActionButton(string text, double width)
     {
-        button.Background = CreateBrush(color);
-        if (button.Effect is DropShadowEffect shadow)
+        var label = CreateActionButtonText(text);
+        var shadowChrome = CreateActionButtonShadowChrome(width);
+        var chrome = CreateActionButtonChrome(width);
+        var content = new Grid
+        {
+            Width = width,
+            Height = ActionButtonHeight,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            UseLayoutRounding = true,
+            SnapsToDevicePixels = true,
+            RenderTransform = new ScaleTransform(DefaultInteractiveScale, DefaultInteractiveScale),
+            RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
+            CacheMode = new BitmapCache
+            {
+                EnableClearType = false,
+                RenderAtScale = ActionButtonHoverScale
+            }
+        };
+        RenderOptions.SetBitmapScalingMode(content, BitmapScalingMode.HighQuality);
+        var host = new Grid
+        {
+            Width = width,
+            Height = ActionButtonHeight,
+            Background = Brushes.Transparent,
+            Cursor = Cursors.Hand,
+            UseLayoutRounding = true,
+            SnapsToDevicePixels = true
+        };
+
+        content.Children.Add(chrome);
+        content.Children.Add(label);
+        host.Children.Add(shadowChrome);
+        host.Children.Add(content);
+
+        return new ActionButtonParts
+        {
+            Host = host,
+            Content = content,
+            ShadowChrome = shadowChrome,
+            Chrome = chrome,
+            Label = label
+        };
+    }
+
+    private static void ApplyActionButtonColor(ActionButtonParts button, System.Windows.Media.Color color)
+    {
+        button.ShadowChrome.Background = CreateBrush(color);
+        button.Chrome.Background = CreateBrush(color);
+        if (button.ShadowChrome.Effect is DropShadowEffect shadow)
         {
             shadow.Color = color;
         }
     }
 
     private static void ConfigureActionButtonInteractions(
-        Border button,
+        ActionButtonParts button,
         Func<System.Windows.Media.Color> baseColorProvider,
         Func<System.Windows.Media.Color> hoverColorProvider,
         Func<System.Windows.Media.Color> pressedColorProvider,
         Action onClick)
     {
-        button.MouseEnter += (s, e) => ApplyActionButtonColor(button, hoverColorProvider());
-        button.MouseLeave += (s, e) => ApplyActionButtonColor(button, baseColorProvider());
-        button.MouseLeftButtonDown += (s, e) => ApplyActionButtonColor(button, pressedColorProvider());
-        button.MouseLeftButtonUp += (s, e) =>
+        button.Host.MouseLeave += (s, e) => ApplyActionButtonColor(button, baseColorProvider());
+        button.Host.MouseLeftButtonDown += (s, e) => ApplyActionButtonColor(button, pressedColorProvider());
+        button.Host.MouseLeftButtonUp += (s, e) =>
         {
             onClick();
             ApplyActionButtonColor(button, baseColorProvider());
         };
+        ConfigureHoverScaleInteractions(
+            button.Host,
+            button.Content,
+            ActionButtonHoverScale,
+            pressedScale: ActionButtonPressedScale);
 
         ApplyActionButtonColor(button, baseColorProvider());
+    }
+
+    private static void ConfigureHoverScaleInteractions(
+        UIElement element,
+        UIElement scaleTarget,
+        double hoverScale,
+        double defaultScale = DefaultInteractiveScale,
+        double? pressedScale = null)
+    {
+        var scaleTransform = EnsureScaleTransform(scaleTarget);
+
+        element.MouseEnter += (s, e) =>
+            AnimateScale(scaleTransform, hoverScale, HoverAnimationDurationMs, EasingMode.EaseOut);
+        element.MouseLeave += (s, e) =>
+            AnimateScale(scaleTransform, defaultScale, LeaveAnimationDurationMs, EasingMode.EaseIn);
+
+        if (pressedScale.HasValue)
+        {
+            element.MouseLeftButtonDown += (s, e) =>
+                AnimateScale(scaleTransform, pressedScale.Value, PressAnimationDurationMs, EasingMode.EaseOut);
+            element.MouseLeftButtonUp += (s, e) =>
+            {
+                var isHoveringVisibleElement = element.IsVisible && element.IsMouseOver;
+                var targetScale = isHoveringVisibleElement ? hoverScale : defaultScale;
+                AnimateScale(
+                    scaleTransform,
+                    targetScale,
+                    PressAnimationDurationMs,
+                    isHoveringVisibleElement ? EasingMode.EaseOut : EasingMode.EaseIn);
+            };
+        }
+    }
+
+    private static void ConfigureHoverScaleInteractions(
+        UIElement element,
+        double hoverScale,
+        double defaultScale = DefaultInteractiveScale,
+        double? pressedScale = null)
+    {
+        ConfigureHoverScaleInteractions(element, element, hoverScale, defaultScale, pressedScale);
+    }
+
+    private static ScaleTransform EnsureScaleTransform(UIElement element)
+    {
+        if (element.RenderTransform is ScaleTransform existingScale)
+        {
+            if (element is FrameworkElement existingElement)
+            {
+                existingElement.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
+            }
+
+            return existingScale;
+        }
+
+        var scaleTransform = new ScaleTransform(DefaultInteractiveScale, DefaultInteractiveScale);
+        element.RenderTransform = scaleTransform;
+
+        if (element is FrameworkElement frameworkElement)
+        {
+            frameworkElement.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
+        }
+
+        return scaleTransform;
+    }
+
+    private static void AnimateScale(
+        ScaleTransform scaleTransform,
+        double targetScale,
+        int durationMs,
+        EasingMode easingMode)
+    {
+        StopScaleAnimation(scaleTransform);
+
+        var duration = TimeSpan.FromMilliseconds(durationMs);
+        var easing = new CubicEase
+        {
+            EasingMode = easingMode
+        };
+
+        var scaleXAnimation = new DoubleAnimation(targetScale, duration)
+        {
+            EasingFunction = easing
+        };
+        var scaleYAnimation = new DoubleAnimation(targetScale, duration)
+        {
+            EasingFunction = easing
+        };
+
+        scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, scaleXAnimation);
+        scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, scaleYAnimation);
+    }
+
+    private static void ResetScale(UIElement element)
+    {
+        var scaleTransform = EnsureScaleTransform(element);
+        StopScaleAnimation(scaleTransform);
+        scaleTransform.ScaleX = DefaultInteractiveScale;
+        scaleTransform.ScaleY = DefaultInteractiveScale;
+    }
+
+    private static void StopScaleAnimation(ScaleTransform scaleTransform)
+    {
+        var currentScaleX = scaleTransform.ScaleX;
+        var currentScaleY = scaleTransform.ScaleY;
+        scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        scaleTransform.ScaleX = currentScaleX;
+        scaleTransform.ScaleY = currentScaleY;
     }
 
     private static ComboBox CreateStyledComboBox()
@@ -1054,6 +1266,15 @@ public class PomodoroPopupWindow : IDisposable
         _backButton.Visibility = _isSettingsView ? Visibility.Visible : Visibility.Collapsed;
         _todayFocusHeaderBorder.Visibility = _isSettingsView ? Visibility.Collapsed : Visibility.Visible;
         _headerTitle.Visibility = _isSettingsView ? Visibility.Visible : Visibility.Collapsed;
+        if (_isSettingsView)
+        {
+            ResetScale(_openSettingsButton);
+        }
+        else
+        {
+            ResetScale(_backButton);
+        }
+
         if (_isSettingsView)
         {
             ResetTodayFocusHeaderVisualState();
@@ -1800,18 +2021,38 @@ public class PomodoroPopupWindow : IDisposable
         UpdateDisplay();
     }
 
+    private void ResetInteractiveScaleStates()
+    {
+        ResetScale(_startFocusButton.Content);
+        ResetScale(_startBreakButton.Content);
+        ResetScale(_stopCurrentButton.Content);
+        ResetScale(_openSettingsButton);
+        ResetScale(_backButton);
+        ResetScale(_timerCanvasHost);
+    }
+
     private void UpdateActionButtonsState()
     {
         var isRunning = _reminderService.IsRunning;
         var isBreakMode = _reminderService.CurrentMode == PomodoroMode.Break;
 
         _idleActionButtonsPanel.Visibility = isRunning ? Visibility.Collapsed : Visibility.Visible;
-        _stopCurrentButtonBorder.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
-        _stopCurrentButtonText.Text = isBreakMode ? "结束休息" : "结束专注";
+        _stopCurrentButton.Host.Visibility = isRunning ? Visibility.Visible : Visibility.Collapsed;
+        _stopCurrentButton.Label.Text = isBreakMode ? "结束休息" : "结束专注";
 
-        ApplyActionButtonColor(_startFocusButtonBorder, GetButtonBaseColor(isRunning: false, isBreakMode: false));
-        ApplyActionButtonColor(_startBreakButtonBorder, GetButtonBaseColor(isRunning: false, isBreakMode: true));
-        ApplyActionButtonColor(_stopCurrentButtonBorder, GetButtonBaseColor(isRunning: true, isBreakMode));
+        if (isRunning)
+        {
+            ResetScale(_startFocusButton.Content);
+            ResetScale(_startBreakButton.Content);
+        }
+        else
+        {
+            ResetScale(_stopCurrentButton.Content);
+        }
+
+        ApplyActionButtonColor(_startFocusButton, GetButtonBaseColor(isRunning: false, isBreakMode: false));
+        ApplyActionButtonColor(_startBreakButton, GetButtonBaseColor(isRunning: false, isBreakMode: true));
+        ApplyActionButtonColor(_stopCurrentButton, GetButtonBaseColor(isRunning: true, isBreakMode));
     }
 
     private static SolidColorBrush CreateBrush(System.Windows.Media.Color color)
